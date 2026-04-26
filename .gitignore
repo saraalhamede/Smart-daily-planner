@@ -1,0 +1,4 @@
+node_modules/
+server/data/app-data.json
+.env
+database/schema.sql
