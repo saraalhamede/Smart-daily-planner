@@ -1,3 +1,6 @@
+CREATE DATABASE IF NOT EXISTS smart_day_planner;
+USE smart_day_planner;
+
 CREATE TABLE users (
   user_id VARCHAR(40) PRIMARY KEY,
   full_name VARCHAR(120) NOT NULL,
@@ -5,6 +8,10 @@ CREATE TABLE users (
   preferred_language VARCHAR(20) DEFAULT 'en',
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+INSERT INTO users (user_id, full_name, email, preferred_language)
+VALUES ('user_demo', 'Sara Alhamede', 'sara@smart-planner.local', 'en')
+ON DUPLICATE KEY UPDATE full_name = VALUES(full_name);
 
 CREATE TABLE user_preferences (
   preference_id VARCHAR(40) PRIMARY KEY,
@@ -19,6 +26,26 @@ CREATE TABLE user_preferences (
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (user_id) REFERENCES users(user_id)
 );
+
+INSERT INTO user_preferences (
+  preference_id,
+  user_id,
+  wake_up_time,
+  sleep_time,
+  preferred_study_start,
+  preferred_study_end,
+  break_duration_minutes,
+  max_daily_tasks
+) VALUES (
+  'pref_demo',
+  'user_demo',
+  '07:00:00',
+  '22:30:00',
+  '09:00:00',
+  '18:00:00',
+  10,
+  6
+) ON DUPLICATE KEY UPDATE user_id = VALUES(user_id);
 
 CREATE TABLE daily_logs (
   log_id VARCHAR(40) PRIMARY KEY,
@@ -106,3 +133,44 @@ CREATE TABLE feedback (
   FOREIGN KEY (task_id) REFERENCES tasks(task_id),
   FOREIGN KEY (schedule_item_id) REFERENCES schedule_items(schedule_item_id)
 );
+
+CREATE TABLE ai_predictions (
+  prediction_id VARCHAR(40) PRIMARY KEY,
+  user_id VARCHAR(40) NOT NULL,
+  source_type VARCHAR(50) NOT NULL,
+  source_id VARCHAR(40),
+  model_name VARCHAR(100) NOT NULL,
+  input_text TEXT,
+  predicted_label VARCHAR(100),
+  confidence_score DECIMAL(5,4),
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (user_id) REFERENCES users(user_id)
+);
+
+CREATE TABLE survey_responses (
+  response_id VARCHAR(40) PRIMARY KEY,
+  role_name VARCHAR(50),
+  study_work_hours VARCHAR(50),
+  mood_text VARCHAR(80),
+  mood_level TINYINT,
+  stress_answer VARCHAR(20),
+  energy_level TINYINT,
+  sleep_hours_category VARCHAR(50),
+  is_tired VARCHAR(20),
+  task_completion VARCHAR(50),
+  productive_hours_category VARCHAR(50),
+  task_difficulty VARCHAR(50),
+  day_reason TEXT,
+  exercise_answer VARCHAR(20),
+  coffee_answer VARCHAR(20),
+  submission_time VARCHAR(50),
+  satisfaction_score TINYINT,
+  imported_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_daily_logs_user_date ON daily_logs(user_id, log_date);
+CREATE INDEX idx_tasks_user_status ON tasks(user_id, status);
+CREATE INDEX idx_tasks_fixed_time ON tasks(user_id, fixed_date, is_fixed_time);
+CREATE INDEX idx_schedules_user_date ON schedules(user_id, schedule_date);
+CREATE INDEX idx_schedule_items_schedule_time ON schedule_items(schedule_id, start_time);
+CREATE INDEX idx_feedback_user_task ON feedback(user_id, task_id);

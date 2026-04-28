@@ -31,12 +31,11 @@ export function generateDailySchedule({
     .filter((task) => new Date(task.end_time) > planningStart)
     .sort((a, b) => new Date(a.start_time) - new Date(b.start_time));
 
-  const blocked = fixedTasks.map((task) => ({
-    start: new Date(task.start_time),
-    end: new Date(task.end_time)
-  }));
-
-  const freeSegments = buildFreeSegments(planningStart, planningEnd, blocked);
+  const freeSegments = buildFreeSegments(
+    planningStart,
+    planningEnd,
+    fixedTasks.map((task) => ({ start: new Date(task.start_time), end: new Date(task.end_time) }))
+  );
 
   const flexibleTasks = tasks
     .filter((task) => !task.is_completed && task.status !== 'completed' && !task.is_fixed_time)
@@ -88,7 +87,7 @@ export function generateDailySchedule({
   return {
     user_id: userId,
     schedule_date: targetDate,
-    schedule_note: buildNote(rescheduleEnergy, rescheduleFrom, fixedTasks.length, items.length, feedbackContext),
+    schedule_note: buildNote(rescheduleEnergy, rescheduleFrom, fixedTasks.length, items.length),
     items
   };
 }
@@ -225,7 +224,7 @@ function buildReason(task, energy, feedbackContext) {
   return 'Placed in a free gap based on priority, difficulty, and remaining time.';
 }
 
-function buildNote(energy, rescheduleFrom, fixedCount, totalCount, feedbackContext) {
+function buildNote(energy, rescheduleFrom, fixedCount, totalCount) {
   if (totalCount === 0) return 'No schedule could be generated for the remaining time.';
   if (rescheduleFrom) {
     return `Schedule refreshed after feedback. Remaining tasks were re-planned using the updated state (energy ${energy}/5).`;

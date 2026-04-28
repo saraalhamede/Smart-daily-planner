@@ -92,7 +92,7 @@ function buildAdvice(predictedEnergy, stressLevel, isTired) {
   return 'Balanced day. Mix priorities with healthy breaks.';
 }
 
-function clamp(value, min, max, fallback) {
+function clamp(value, min, max, fallback = min) {
   const parsed = Number.parseInt(value, 10);
   if (Number.isNaN(parsed)) return fallback;
   return Math.min(max, Math.max(min, parsed));
