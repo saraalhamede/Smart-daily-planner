@@ -1,0 +1,1823 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Smart Day Planner - Visual AI Poster</title>
+    <style>
+      :root {
+        --ink: #0b1f3a;
+        --muted: #42556f;
+        --line: #c7d9f0;
+        --blue: #2468c9;
+        --navy: #163c78;
+        --sky: #63c2ec;
+        --teal: #0aa6a3;
+        --green: #30a86b;
+        --amber: #f4b13f;
+        --rose: #d75470;
+        --violet: #7567d9;
+        --soft: #f4f9ff;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        background: #cbd6e4;
+        color: var(--ink);
+        font-family: "Assistant", "Noto Sans Hebrew", "Segoe UI", sans-serif;
+      }
+
+      .poster {
+        width: 50cm;
+        height: 70cm;
+        margin: 0 auto;
+        overflow: hidden;
+        background:
+          radial-gradient(circle at 14% 18%, rgba(99, 194, 236, 0.16), transparent 24%),
+          radial-gradient(circle at 85% 52%, rgba(10, 166, 163, 0.12), transparent 22%),
+          linear-gradient(180deg, #ffffff 0%, #f6fbff 70%, #edf5ff 100%);
+        box-shadow: 0 24px 72px rgba(0, 0, 0, 0.18);
+      }
+
+      .header {
+        display: grid;
+        grid-template-columns: 4.8cm 1fr;
+        gap: 0.55cm;
+        align-items: center;
+        height: 5.85cm;
+        padding: 0.48cm 0.72cm;
+        color: #ffffff;
+        background:
+          radial-gradient(circle at 10% 15%, rgba(255, 255, 255, 0.22), transparent 22%),
+          linear-gradient(105deg, #1f5fb8, #66bee9);
+      }
+
+      .logo-panel {
+        display: grid;
+        place-items: center;
+        height: 4.55cm;
+        border-radius: 0.24cm;
+        background: #ffffff;
+        box-shadow: 0 0.18cm 0.46cm rgba(0, 0, 0, 0.16);
+      }
+
+      .logo-panel img {
+        width: 4.05cm;
+        max-height: 3.2cm;
+      }
+
+      .department {
+        margin: 0 0 0.1cm;
+        font-size: 0.36cm;
+        font-weight: 850;
+        opacity: 0.9;
+      }
+
+      h1 {
+        margin: 0;
+        font-size: 1.34cm;
+        line-height: 1.02;
+        letter-spacing: -0.045em;
+      }
+
+      .subtitle {
+        margin: 0.22cm 0 0;
+        max-width: 35.5cm;
+        color: rgba(255, 255, 255, 0.95);
+        font-size: 0.48cm;
+        line-height: 1.25;
+        font-weight: 650;
+      }
+
+      .byline {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.18cm;
+        margin-top: 0.28cm;
+      }
+
+      .byline span {
+        border: 0.03cm solid rgba(255, 255, 255, 0.42);
+        border-radius: 999px;
+        padding: 0.13cm 0.3cm;
+        background: rgba(255, 255, 255, 0.16);
+        font-size: 0.31cm;
+        font-weight: 900;
+      }
+
+      .page {
+        display: grid;
+        gap: 0.36cm;
+        padding: 0.38cm 0.72cm 0.58cm;
+      }
+
+      .five-second {
+        display: grid;
+        grid-template-columns: auto 1fr auto;
+        gap: 0.26cm;
+        align-items: center;
+        min-height: 1.85cm;
+        border-radius: 0.34cm;
+        padding: 0.22cm 0.34cm;
+        color: #ffffff;
+        background: linear-gradient(95deg, var(--navy), var(--blue));
+        box-shadow: 0 0.16cm 0.38cm rgba(22, 60, 120, 0.18);
+      }
+
+      .five-second b {
+        font-size: 0.48cm;
+        line-height: 1.05;
+      }
+
+      .five-second span {
+        font-size: 0.34cm;
+        line-height: 1.2;
+        font-weight: 750;
+        color: rgba(255, 255, 255, 0.9);
+      }
+
+      .concept-chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.12cm;
+        margin-top: 0.16cm;
+      }
+
+      .concept-chips span {
+        border-radius: 999px;
+        padding: 0.08cm 0.18cm;
+        background: rgba(255, 255, 255, 0.18);
+        color: #ffffff;
+        font-size: 0.24cm;
+        font-weight: 900;
+      }
+
+      .spark {
+        display: grid;
+        width: 1.05cm;
+        height: 1.05cm;
+        place-items: center;
+        border-radius: 50%;
+        background: rgba(255, 255, 255, 0.18);
+        font-size: 0.58cm;
+        font-weight: 1000;
+      }
+
+      .workflow {
+        position: relative;
+        height: 48.2cm;
+        border: 0.04cm solid #b9d2ee;
+        border-radius: 0.42cm;
+        overflow: hidden;
+        background:
+          radial-gradient(circle at 50% 40%, rgba(36, 104, 201, 0.12), transparent 24%),
+          linear-gradient(180deg, #ffffff 0%, #f3f9ff 100%);
+      }
+
+      .workflow > .workflow-header,
+      .workflow > .flow-lines,
+      .workflow > .flow-card,
+      .workflow > .engine-core,
+      .workflow > .callout,
+      .workflow > .dynamic-example {
+        display: none;
+      }
+
+      .journey-title {
+        position: absolute;
+        top: 0.55cm;
+        right: 0.85cm;
+        left: 0.85cm;
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 0.45cm;
+        align-items: center;
+        direction: ltr;
+        text-align: left;
+      }
+
+      .journey-title h2 {
+        margin: 0;
+        color: var(--navy);
+        font-size: 1.15cm;
+        line-height: 0.98;
+        font-weight: 1000;
+        letter-spacing: -0.04em;
+      }
+
+      .journey-title p {
+        margin: 0.18cm 0 0;
+        max-width: 30cm;
+        color: var(--muted);
+        font-size: 0.52cm;
+        line-height: 1.18;
+        font-weight: 850;
+      }
+
+      .journey-badge {
+        border-radius: 999px;
+        padding: 0.34cm 0.52cm;
+        color: #ffffff;
+        background: linear-gradient(135deg, var(--navy), var(--blue));
+        font-size: 0.42cm;
+        font-weight: 1000;
+        white-space: nowrap;
+      }
+
+      .journey-arrows {
+        position: absolute;
+        top: 4.4cm;
+        right: 0.7cm;
+        left: 0.7cm;
+        height: 41.9cm;
+        opacity: 0.78;
+        pointer-events: none;
+      }
+
+      .journey-arrows path {
+        stroke-width: 13;
+      }
+
+      .journey-stage {
+        position: absolute;
+        display: grid;
+        gap: 0.28cm;
+        direction: ltr;
+        text-align: left;
+      }
+
+      .journey-stage-title {
+        display: flex;
+        align-items: center;
+        gap: 0.22cm;
+        width: fit-content;
+        border-radius: 999px;
+        padding: 0.06cm 0.2cm 0.08cm 0.08cm;
+        background: rgba(255, 255, 255, 0.9);
+        color: var(--navy);
+        font-size: 0.78cm;
+        line-height: 1.05;
+        font-weight: 1000;
+        letter-spacing: -0.03em;
+      }
+
+      .journey-number {
+        display: grid;
+        width: 0.9cm;
+        height: 0.9cm;
+        flex: 0 0 auto;
+        place-items: center;
+        border-radius: 50%;
+        color: #ffffff;
+        background: var(--blue);
+        font-size: 0.45cm;
+        font-weight: 1000;
+      }
+
+      .journey-card {
+        position: relative;
+        border: 0.04cm solid var(--line);
+        border-radius: 0.45cm;
+        background: rgba(255, 255, 255, 0.96);
+        box-shadow: 0 0.2cm 0.55cm rgba(11, 31, 58, 0.11);
+        overflow: hidden;
+      }
+
+      .journey-user {
+        top: 6.0cm;
+        left: 1.5cm;
+        width: 8.2cm;
+      }
+
+      .journey-person-card {
+        height: 8.65cm;
+        background: linear-gradient(180deg, #fff8e8, #ffffff);
+      }
+
+      .journey-person {
+        position: absolute;
+        left: 2.0cm;
+        bottom: 0.75cm;
+        width: 3.2cm;
+        height: 4.6cm;
+      }
+
+      .journey-head {
+        position: absolute;
+        top: 0.2cm;
+        left: 1.05cm;
+        width: 1.7cm;
+        height: 1.7cm;
+        border-radius: 50%;
+        background: #ffd2a1;
+      }
+
+      .journey-hair {
+        position: absolute;
+        top: 0;
+        left: 0.75cm;
+        width: 2.2cm;
+        height: 1.32cm;
+        border-radius: 50% 50% 36% 36%;
+        background: #22365f;
+      }
+
+      .journey-body {
+        position: absolute;
+        left: 0.42cm;
+        bottom: 0;
+        width: 2.6cm;
+        height: 2.85cm;
+        border-radius: 0.75cm 0.75cm 0.45cm 0.45cm;
+        background: linear-gradient(135deg, var(--blue), var(--teal));
+      }
+
+      .journey-phone {
+        position: absolute;
+        right: 0.8cm;
+        bottom: 1.25cm;
+        width: 1.85cm;
+        height: 3.55cm;
+        border-radius: 0.42cm;
+        background: #11284f;
+        box-shadow: 0 0.18cm 0.4cm rgba(11, 31, 58, 0.22);
+      }
+
+      .journey-phone::before {
+        content: "";
+        position: absolute;
+        inset: 0.26cm 0.22cm;
+        border-radius: 0.28cm;
+        background: #ffffff;
+      }
+
+      .phone-line {
+        position: absolute;
+        left: 0.48cm;
+        right: 0.48cm;
+        height: 0.16cm;
+        border-radius: 999px;
+        background: var(--teal);
+        z-index: 1;
+      }
+
+      .phone-line.one {
+        top: 1.05cm;
+      }
+
+      .phone-line.two {
+        top: 1.55cm;
+        background: var(--amber);
+      }
+
+      .phone-line.three {
+        top: 2.05cm;
+        background: var(--rose);
+      }
+
+      .journey-checkin {
+        top: 5.75cm;
+        left: 18.9cm;
+        width: 10.6cm;
+      }
+
+      .journey-input-card {
+        min-height: 8.65cm;
+        padding: 0.55cm;
+        background: linear-gradient(180deg, #eef7ff, #ffffff);
+      }
+
+      .user-input-note {
+        border-radius: 0.35cm;
+        padding: 0.32cm 0.38cm;
+        background: #ffffff;
+        border: 0.035cm solid #cfe2f6;
+        color: var(--navy);
+      }
+
+      .user-input-note strong {
+        display: block;
+        font-size: 0.46cm;
+        line-height: 1.05;
+        font-weight: 1000;
+      }
+
+      .user-input-note span {
+        display: block;
+        margin-top: 0.14cm;
+        color: var(--muted);
+        font-size: 0.38cm;
+        line-height: 1.2;
+        font-weight: 850;
+      }
+
+      .input-value-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.2cm;
+        margin-top: 0.24cm;
+        padding: 0.23cm 0.3cm;
+        border-radius: 0.35cm;
+        background: #ffffff;
+        border: 0.035cm solid #d7e7f7;
+        color: var(--navy);
+        font-size: 0.5cm;
+        font-weight: 1000;
+      }
+
+      .row-label {
+        display: flex;
+        align-items: center;
+        gap: 0.18cm;
+      }
+
+      .value-icon {
+        display: grid;
+        width: 0.76cm;
+        height: 0.76cm;
+        place-items: center;
+        border-radius: 0.25cm;
+        color: #ffffff;
+        background: var(--teal);
+      }
+
+      .value-icon svg {
+        width: 0.5cm;
+        height: 0.5cm;
+      }
+
+      .journey-task {
+        top: 6.0cm;
+        right: 1.5cm;
+        width: 10.8cm;
+      }
+
+      .journey-task-card {
+        min-height: 8.65cm;
+        padding: 0.58cm;
+        background: linear-gradient(180deg, #fff8e8, #ffffff);
+      }
+
+      .task-pill {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 0.24cm;
+        align-items: center;
+        margin-top: 0.35cm;
+        padding: 0.38cm 0.42cm;
+        border-radius: 0.42cm;
+        background: #ffffff;
+        border: 0.035cm solid #ead9b6;
+        color: var(--navy);
+        font-size: 0.55cm;
+        font-weight: 1000;
+      }
+
+      .task-pill:first-child {
+        margin-top: 0;
+      }
+
+      .difficulty {
+        border-radius: 999px;
+        padding: 0.12cm 0.24cm;
+        color: #ffffff;
+        background: var(--rose);
+        font-size: 0.31cm;
+        font-weight: 1000;
+      }
+
+      .difficulty.medium {
+        background: var(--amber);
+      }
+
+      .difficulty.easy {
+        background: var(--green);
+      }
+
+      .journey-ai {
+        top: 20.3cm;
+        left: 10.9cm;
+        right: 10.9cm;
+      }
+
+      .ai-core-visual {
+        min-height: 9.35cm;
+        display: grid;
+        grid-template-columns: 1fr 6.6cm 1fr;
+        gap: 0.55cm;
+        align-items: center;
+        padding: 0.55cm 0.65cm 0.68cm;
+        border-radius: 0.7cm;
+        color: #ffffff;
+        background: linear-gradient(135deg, var(--navy), var(--blue));
+        box-shadow: 0 0.28cm 0.72cm rgba(14, 57, 119, 0.24);
+      }
+
+      .ai-core-visual h3 {
+        grid-column: 1 / -1;
+        margin: 0;
+        text-align: center;
+        font-size: 0.95cm;
+        line-height: 1;
+        font-weight: 1000;
+        letter-spacing: -0.03em;
+      }
+
+      .ai-labels {
+        display: grid;
+        gap: 0.3cm;
+      }
+
+      .ai-label {
+        border-radius: 999px;
+        padding: 0.3cm 0.32cm;
+        background: rgba(255, 255, 255, 0.16);
+        text-align: center;
+        font-size: 0.48cm;
+        line-height: 1.08;
+        font-weight: 1000;
+      }
+
+      .llm-visual {
+        display: grid;
+        grid-template-columns: 1.3cm 1fr;
+        gap: 0.26cm;
+        align-items: center;
+      }
+
+      .llm-doc {
+        display: grid;
+        height: 2.2cm;
+        place-items: center;
+        border-radius: 0.34cm;
+        color: var(--navy);
+        background: #ffffff;
+        font-size: 0.36cm;
+        font-weight: 1000;
+      }
+
+      .llm-network {
+        position: relative;
+        height: 3.05cm;
+        border-radius: 0.5cm;
+        background: rgba(255, 255, 255, 0.13);
+      }
+
+      .llm-chip {
+        position: absolute;
+        left: 1.03cm;
+        top: 0.78cm;
+        display: grid;
+        width: 1.82cm;
+        height: 1.18cm;
+        place-items: center;
+        border-radius: 0.42cm;
+        background: #ffffff;
+        color: var(--navy);
+        font-size: 0.56cm;
+        font-weight: 1000;
+      }
+
+      .node {
+        position: absolute;
+        width: 0.34cm;
+        height: 0.34cm;
+        border-radius: 50%;
+        background: var(--teal);
+      }
+
+      .node.a { left: 0.42cm; top: 0.42cm; }
+      .node.b { right: 0.42cm; top: 0.5cm; background: var(--amber); }
+      .node.c { left: 0.45cm; bottom: 0.46cm; background: var(--rose); }
+      .node.d { right: 0.42cm; bottom: 0.42cm; }
+
+      .network-line {
+        position: absolute;
+        height: 0.09cm;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.74);
+        transform-origin: left center;
+      }
+
+      .network-line.one {
+        left: 0.7cm;
+        top: 0.64cm;
+        width: 2.3cm;
+        transform: rotate(18deg);
+      }
+
+      .network-line.two {
+        left: 0.7cm;
+        bottom: 0.66cm;
+        width: 2.35cm;
+        transform: rotate(-18deg);
+      }
+
+      .network-line.three {
+        left: 1.9cm;
+        top: 1.5cm;
+        width: 1.5cm;
+      }
+
+      .journey-schedule {
+        bottom: 1.9cm;
+        left: 1.6cm;
+        width: 16.4cm;
+      }
+
+      .journey-schedule-card {
+        min-height: 6.9cm;
+        padding: 0.68cm;
+        background: linear-gradient(180deg, #effbf5, #ffffff);
+      }
+
+      .schedule-result-list {
+        display: grid;
+        gap: 0.28cm;
+      }
+
+      .schedule-line {
+        display: grid;
+        grid-template-columns: 1.8cm 1fr;
+        gap: 0.34cm;
+        align-items: center;
+        color: var(--navy);
+        font-size: 0.54cm;
+        line-height: 1.1;
+        font-weight: 1000;
+      }
+
+      .schedule-line span {
+        display: flex;
+        align-items: center;
+        gap: 0.22cm;
+      }
+
+      .schedule-line span::before {
+        content: "";
+        display: inline-block;
+        width: 0.28cm;
+        height: 0.28cm;
+        border-radius: 50%;
+        background: var(--teal);
+      }
+
+      .schedule-line.fixed span::before {
+        background: var(--rose);
+      }
+
+      .schedule-note {
+        margin-top: 0.46cm;
+        color: var(--muted);
+        font-size: 0.42cm;
+        line-height: 1.18;
+        font-weight: 850;
+      }
+
+      .journey-feedback {
+        bottom: 1.9cm;
+        right: 1.6cm;
+        width: 15.4cm;
+      }
+
+      .journey-feedback-card {
+        min-height: 6.9cm;
+        padding: 0.72cm;
+        background: linear-gradient(180deg, #fff0f4, #ffffff);
+      }
+
+      .feedback-bubble {
+        position: relative;
+        margin-top: 0.25cm;
+        border-radius: 0.5cm;
+        padding: 0.62cm;
+        background: #ffffff;
+        border: 0.04cm solid #f2bdca;
+        color: var(--navy);
+        text-align: center;
+        font-size: 0.7cm;
+        line-height: 1.05;
+        font-weight: 1000;
+      }
+
+      .feedback-bubble::after {
+        content: "";
+        position: absolute;
+        left: 1.35cm;
+        bottom: -0.42cm;
+        border-width: 0.42cm 0.34cm 0 0.34cm;
+        border-style: solid;
+        border-color: #ffffff transparent transparent transparent;
+      }
+
+      .feedback-result {
+        margin-top: 0.78cm;
+        border-radius: 999px;
+        padding: 0.38cm 0.45cm;
+        color: #ffffff;
+        text-align: center;
+        background: var(--rose);
+        font-size: 0.54cm;
+        line-height: 1.05;
+        font-weight: 1000;
+      }
+
+      .workflow-header {
+        position: absolute;
+        top: 0.45cm;
+        right: 0.62cm;
+        left: 0.62cm;
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 0.25cm;
+        align-items: center;
+      }
+
+      .workflow-header h2 {
+        margin: 0;
+        color: var(--navy);
+        font-size: 0.78cm;
+        line-height: 1.04;
+        font-weight: 1000;
+      }
+
+      .workflow-header p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 0.34cm;
+        line-height: 1.22;
+        font-weight: 750;
+      }
+
+      .flow-lines {
+        position: absolute;
+        top: 2.35cm;
+        right: 0.6cm;
+        width: calc(100% - 1.2cm);
+        height: 43.2cm;
+        pointer-events: none;
+      }
+
+      .flow-card {
+        position: absolute;
+        display: grid;
+        grid-template-columns: 1.85cm 1fr;
+        gap: 0.25cm;
+        align-items: center;
+        min-height: 5.15cm;
+        border: 0.035cm solid var(--line);
+        border-radius: 0.32cm;
+        padding: 0.34cm;
+        background: #ffffff;
+        box-shadow: 0 0.16cm 0.42cm rgba(22, 60, 120, 0.12);
+        overflow: hidden;
+      }
+
+      .flow-card::after {
+        content: "";
+        position: absolute;
+        left: 0.35cm;
+        top: 0.5cm;
+        width: 5.4cm;
+        height: 3.65cm;
+        border-radius: 0.28cm;
+        opacity: 0.34;
+        background:
+          linear-gradient(90deg, transparent 0 18%, rgba(36, 104, 201, 0.35) 18% 70%, transparent 70%),
+          linear-gradient(180deg, transparent 0 22%, rgba(10, 166, 163, 0.35) 22% 37%, transparent 37% 52%, rgba(215, 84, 112, 0.28) 52% 67%, transparent 67%);
+      }
+
+      .flow-card > * {
+        position: relative;
+        z-index: 1;
+      }
+
+      .flow-card.wide {
+        grid-template-columns: 2cm 1fr;
+        min-height: 5.7cm;
+      }
+
+      .icon {
+        display: grid;
+        place-items: center;
+        width: 1.65cm;
+        height: 1.65cm;
+        border-radius: 0.36cm;
+        color: #ffffff;
+        background: var(--blue);
+      }
+
+      .icon svg {
+        width: 1.18cm;
+        height: 1.18cm;
+      }
+
+      .flow-card h3 {
+        margin: 0;
+        color: var(--navy);
+        font-size: 0.55cm;
+        line-height: 1.05;
+        font-weight: 1000;
+      }
+
+      .flow-card p {
+        margin: 0.09cm 0 0;
+        color: var(--muted);
+        font-size: 0.3cm;
+        line-height: 1.2;
+        font-weight: 720;
+      }
+
+      .chip-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.11cm;
+        margin-top: 0.18cm;
+      }
+
+      .chip {
+        border-radius: 999px;
+        padding: 0.09cm 0.17cm;
+        background: rgba(36, 104, 201, 0.1);
+        color: var(--navy);
+        font-size: 0.24cm;
+        font-weight: 900;
+      }
+
+      .checkin {
+        top: 3.15cm;
+        right: 1.1cm;
+        width: 18.8cm;
+        background: #f1f7ff;
+      }
+
+      .task-input {
+        top: 3.15cm;
+        left: 1.1cm;
+        width: 18.8cm;
+        background: #fff5df;
+      }
+
+      .ai-layer {
+        top: 10.9cm;
+        right: 9.85cm;
+        left: 9.85cm;
+        background: #eafaf8;
+      }
+
+      .scheduler {
+        top: 18.7cm;
+        right: 10.95cm;
+        left: 10.95cm;
+        background: #eef0ff;
+      }
+
+      .schedule {
+        top: 26.2cm;
+        right: 1.1cm;
+        width: 20.7cm;
+        background: #effaf3;
+      }
+
+      .feedback {
+        top: 26.2cm;
+        left: 1.1cm;
+        width: 20.7cm;
+        background: #ffeaf0;
+      }
+
+      .engine-core {
+        position: absolute;
+        top: 36.0cm;
+        right: 10.55cm;
+        left: 10.55cm;
+        display: grid;
+        place-items: center;
+        min-height: 5.5cm;
+        border-radius: 0.46cm;
+        color: #ffffff;
+        text-align: center;
+        background: linear-gradient(135deg, var(--navy), var(--blue));
+        box-shadow: 0 0.2cm 0.52cm rgba(22, 60, 120, 0.22);
+      }
+
+      .engine-core strong {
+        display: block;
+        font-size: 0.68cm;
+        line-height: 1.04;
+        font-weight: 1000;
+      }
+
+      .engine-core span {
+        display: block;
+        margin-top: 0.1cm;
+        color: rgba(255, 255, 255, 0.88);
+        font-size: 0.32cm;
+        font-weight: 750;
+      }
+
+      .mini-timeline {
+        display: grid;
+        gap: 0.09cm;
+        margin-top: 0.16cm;
+      }
+
+      .time-row {
+        display: grid;
+        grid-template-columns: 1.3cm 1fr;
+        gap: 0.12cm;
+        align-items: center;
+      }
+
+      .time-row b {
+        color: var(--navy);
+        font-size: 0.25cm;
+        font-weight: 1000;
+      }
+
+      .time-row span {
+        height: 0.33cm;
+        border-radius: 999px;
+        background: linear-gradient(90deg, var(--teal), var(--blue));
+      }
+
+      .time-row.fixed span {
+        background: var(--rose);
+      }
+
+      .speech {
+        display: inline-grid;
+        place-items: center;
+        min-width: 2.8cm;
+        min-height: 1cm;
+        border-radius: 0.24cm;
+        background: #ffffff;
+        color: var(--rose);
+        font-size: 0.36cm;
+        font-weight: 1000;
+        border: 0.035cm solid var(--line);
+      }
+
+      .callout {
+        position: absolute;
+        border: 0.035cm solid var(--line);
+        border-radius: 0.25cm;
+        padding: 0.22cm 0.26cm;
+        background: #ffffff;
+        box-shadow: 0 0.12cm 0.3cm rgba(22, 60, 120, 0.08);
+      }
+
+      .callout b {
+        display: block;
+        color: var(--navy);
+        font-size: 0.34cm;
+        line-height: 1.05;
+      }
+
+      .callout span {
+        display: block;
+        margin-top: 0.05cm;
+        color: var(--muted);
+        font-size: 0.25cm;
+        line-height: 1.2;
+        font-weight: 650;
+      }
+
+      .energy-callout {
+        top: 9.45cm;
+        right: 1.3cm;
+        width: 7.6cm;
+      }
+
+      .overlap-callout {
+        top: 16.65cm;
+        left: 1.35cm;
+        width: 8.2cm;
+      }
+
+      .personal-callout {
+        bottom: 0.85cm;
+        right: 1.15cm;
+        width: 12.4cm;
+        background: #f0fffb;
+      }
+
+      .feedback-callout {
+        bottom: 0.85cm;
+        left: 1.15cm;
+        width: 12.4cm;
+        background: #fff7e8;
+      }
+
+      .dynamic-example {
+        position: absolute;
+        top: 31.75cm;
+        right: 11.2cm;
+        left: 11.2cm;
+        display: grid;
+        grid-template-columns: 1fr auto 1fr;
+        gap: 0.18cm;
+        align-items: center;
+        border: 0.035cm solid var(--line);
+        border-radius: 0.3cm;
+        padding: 0.22cm;
+        background: rgba(255, 255, 255, 0.92);
+        box-shadow: 0 0.16cm 0.38cm rgba(22, 60, 120, 0.12);
+        direction: ltr;
+        text-align: left;
+      }
+
+      .example-panel {
+        border-radius: 0.2cm;
+        padding: 0.18cm;
+        background: #f6faff;
+      }
+
+      .example-panel strong {
+        display: block;
+        color: var(--navy);
+        font-size: 0.32cm;
+        line-height: 1.05;
+        font-weight: 1000;
+      }
+
+      .example-panel span {
+        display: block;
+        margin-top: 0.06cm;
+        color: var(--muted);
+        font-size: 0.24cm;
+        line-height: 1.18;
+        font-weight: 800;
+      }
+
+      .example-trigger {
+        display: grid;
+        width: 2.6cm;
+        min-height: 1.7cm;
+        place-items: center;
+        border-radius: 0.24cm;
+        color: #ffffff;
+        text-align: center;
+        background: linear-gradient(135deg, var(--rose), var(--amber));
+        font-size: 0.28cm;
+        line-height: 1.05;
+        font-weight: 1000;
+      }
+
+      .support-grid {
+        display: grid;
+        grid-template-columns: 1.18fr 1fr 1fr;
+        gap: 0.34cm;
+      }
+
+      .support-card {
+        direction: ltr;
+        text-align: left;
+        min-height: 10.55cm;
+        border: 0.035cm solid var(--line);
+        border-radius: 0.32cm;
+        padding: 0.32cm;
+        background: rgba(255, 255, 255, 0.95);
+        box-shadow: 0 0.12cm 0.32cm rgba(22, 60, 120, 0.06);
+      }
+
+      .support-head {
+        display: flex;
+        align-items: center;
+        gap: 0.18cm;
+        margin-bottom: 0.24cm;
+        padding-bottom: 0.18cm;
+        border-bottom: 0.035cm solid var(--line);
+      }
+
+      .support-head .dot {
+        display: grid;
+        width: 0.78cm;
+        height: 0.78cm;
+        place-items: center;
+        border-radius: 50%;
+        color: #ffffff;
+        background: var(--blue);
+        font-size: 0.34cm;
+        font-weight: 1000;
+      }
+
+      .support-head h2 {
+        margin: 0;
+        color: var(--navy);
+        font-size: 0.68cm;
+        line-height: 1.04;
+      }
+
+      .module-grid,
+      .metric-grid,
+      .tech-grid {
+        display: grid;
+        gap: 0.18cm;
+      }
+
+      .module-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+
+      .module,
+      .metric,
+      .tech {
+        border: 0.03cm solid var(--line);
+        border-radius: 0.22cm;
+        padding: 0.22cm;
+        background: #f6faff;
+      }
+
+      .module svg,
+      .metric svg,
+      .tech svg {
+        display: block;
+        width: 100%;
+        height: 2.05cm;
+        margin-bottom: 0.1cm;
+      }
+
+      .module strong,
+      .metric strong,
+      .tech strong {
+        display: block;
+        color: var(--navy);
+        font-size: 0.36cm;
+        line-height: 1.08;
+        font-weight: 1000;
+      }
+
+      .module span,
+      .metric span,
+      .tech span {
+        display: block;
+        margin-top: 0.06cm;
+        color: var(--muted);
+        font-size: 0.24cm;
+        line-height: 1.22;
+        font-weight: 650;
+      }
+
+      .module > span:not(.desc),
+      .tech > span:not(.desc) {
+        display: none;
+      }
+
+      .module .desc,
+      .tech .desc {
+        display: block;
+        color: var(--muted);
+        font-size: 0.285cm;
+        line-height: 1.2;
+        font-weight: 750;
+      }
+
+      .model-note {
+        margin-top: 0.22cm;
+        border-radius: 0.22cm;
+        padding: 0.22cm;
+        background: #eafbff;
+        border-right: 0.12cm solid var(--sky);
+      }
+
+      .model-note b {
+        display: block;
+        color: var(--navy);
+        font-size: 0.38cm;
+      }
+
+      .model-note span {
+        display: block;
+        margin-top: 0.05cm;
+        color: var(--muted);
+        font-size: 0.26cm;
+        line-height: 1.22;
+        font-weight: 650;
+      }
+
+      .model-note span:not(.desc) {
+        display: none;
+      }
+
+      .metric > span:not(.big):not(.desc) {
+        display: none;
+      }
+
+      .metric .desc {
+        display: block;
+        color: var(--muted);
+        font-size: 0.285cm;
+        line-height: 1.2;
+        font-weight: 750;
+      }
+
+      .metric-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+
+      .metric-chart,
+      .support-visual {
+        margin-top: 0.22cm;
+        border: 0.03cm solid var(--line);
+        border-radius: 0.24cm;
+        padding: 0.18cm;
+        background: #f6faff;
+      }
+
+      .metric-chart svg,
+      .support-visual svg {
+        display: block;
+        width: 100%;
+        height: 4.15cm;
+      }
+
+      .metric .big {
+        display: block;
+        color: var(--teal);
+        font-size: 0.95cm;
+        line-height: 1;
+        font-weight: 1000;
+      }
+
+      .tech-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+
+      .future-strip {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 0.14cm;
+        margin-top: 0.12cm;
+      }
+
+      .future-title {
+        margin-top: 0.2cm;
+        color: var(--navy);
+        font-size: 0.31cm;
+        font-weight: 1000;
+      }
+
+      .future-strip span {
+        border-radius: 999px;
+        padding: 0.11cm 0.14cm;
+        background: #eaf3ff;
+        color: var(--navy);
+        font-size: 0.255cm;
+        text-align: center;
+        font-weight: 900;
+      }
+
+      @media print {
+        body {
+          background: #ffffff;
+        }
+
+        .poster {
+          width: 50cm;
+          height: 70cm;
+          box-shadow: none;
+        }
+
+        @page {
+          size: 50cm 70cm;
+          margin: 0;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <article class="poster">
+      <header class="header">
+        <div class="logo-panel">
+          <img src="assets/sapir-logo.svg" alt="לוגו ספיר">
+        </div>
+        <div>
+          <p class="department">המחלקה למדעי המחשב במכללה האקדמית ספיר</p>
+          <h1>Smart Day Planner | מתכנן יום חכם</h1>
+          <p class="subtitle">מערכת AI שמארגנת מחדש את היום לפי מצב המשתמש, אנרגיה, משימות ומשוב בזמן אמת.</p>
+          <div class="byline">
+            <span>מגישות: אמינה פראחין וסארה אלחמידי</span>
+            <span>מנחה: ד"ר האופטמן עמי</span>
+            <span>React + Node/Express + AI Modules</span>
+          </div>
+        </div>
+      </header>
+
+      <main class="page">
+        <section class="five-second" aria-label="Main poster message">
+          <div class="spark">AI</div>
+          <div>
+            <b>מערכת AI לתכנון יום דינמי לפי מצב המשתמש</b>
+            <span>המערכת מתאימה את הלו״ז בזמן אמת לפי מצב המשתמש והמשימות שלו.</span>
+            <div class="concept-chips" aria-label="Central idea inputs">
+              <span>מצב רוח</span>
+              <span>אנרגיה</span>
+              <span>שינה</span>
+              <span>עומס ולחץ</span>
+              <span>משוב משתמש</span>
+            </div>
+          </div>
+          <div class="spark">↻</div>
+        </section>
+
+        <section class="workflow" aria-label="Main dynamic workflow">
+          <div class="workflow-header">
+            <div>
+              <h2>One Main Dynamic Workflow</h2>
+              <p>התרשים המרכזי הוא לב הפוסטר: ממנו מבינים את כל הפרויקט בלי לקרוא פסקאות.</p>
+            </div>
+          </div>
+
+          <svg class="flow-lines" viewBox="0 0 1500 1260" role="img" aria-label="Connected flow arrows">
+            <defs>
+              <marker id="arrow-blue" markerWidth="14" markerHeight="14" refX="12" refY="7" orient="auto">
+                <path d="M1 1 L13 7 L1 13Z" fill="#2468c9"/>
+              </marker>
+              <marker id="arrow-teal" markerWidth="14" markerHeight="14" refX="12" refY="7" orient="auto">
+                <path d="M1 1 L13 7 L1 13Z" fill="#0aa6a3"/>
+              </marker>
+              <marker id="arrow-amber" markerWidth="14" markerHeight="14" refX="12" refY="7" orient="auto">
+                <path d="M1 1 L13 7 L1 13Z" fill="#f4b13f"/>
+              </marker>
+            </defs>
+            <path d="M1110 142 C970 205 870 230 760 280" fill="none" stroke="#2468c9" stroke-width="16" stroke-linecap="round" marker-end="url(#arrow-blue)"/>
+            <path d="M390 142 C520 205 625 230 735 280" fill="none" stroke="#2468c9" stroke-width="16" stroke-linecap="round" marker-end="url(#arrow-blue)"/>
+            <path d="M750 430 V555" fill="none" stroke="#7567d9" stroke-width="16" stroke-linecap="round" marker-end="url(#arrow-blue)"/>
+            <path d="M750 705 V835" fill="none" stroke="#2468c9" stroke-width="16" stroke-linecap="round" marker-end="url(#arrow-blue)"/>
+            <path d="M685 885 C500 900 375 910 282 930" fill="none" stroke="#2468c9" stroke-width="16" stroke-linecap="round" marker-end="url(#arrow-blue)"/>
+            <path d="M815 885 C1000 900 1125 910 1218 930" fill="none" stroke="#2468c9" stroke-width="16" stroke-linecap="round" marker-end="url(#arrow-blue)"/>
+            <path d="M1190 1085 C1005 1200 780 1195 620 1090" fill="none" stroke="#0aa6a3" stroke-width="18" stroke-linecap="round" marker-end="url(#arrow-teal)"/>
+            <path d="M575 1048 C635 1082 670 1100 718 1117" fill="none" stroke="#f4b13f" stroke-width="12" stroke-linecap="round" stroke-dasharray="28 24" marker-end="url(#arrow-amber)"/>
+          </svg>
+
+          <article class="flow-card checkin">
+            <div class="icon">
+              <svg viewBox="0 0 64 64" aria-hidden="true">
+                <circle cx="32" cy="22" r="12" fill="#fff"/>
+                <path d="M14 54 C18 38 46 38 50 54Z" fill="#fff"/>
+                <path d="M20 22 C24 9 40 9 44 22 C36 18 28 18 20 22Z" fill="#0b1f3a"/>
+              </svg>
+            </div>
+            <div>
+              <h3>Daily Check-In</h3>
+              <p>מצב רוח, אנרגיה, שינה ולחץ</p>
+              <div class="chip-row">
+                <span class="chip">Mood</span>
+                <span class="chip">Energy</span>
+                <span class="chip">Sleep</span>
+                <span class="chip">Stress</span>
+              </div>
+            </div>
+          </article>
+
+          <article class="flow-card task-input">
+            <div class="icon" style="background: var(--amber)">
+              <svg viewBox="0 0 64 64" aria-hidden="true">
+                <rect x="13" y="12" width="38" height="44" rx="8" fill="#fff"/>
+                <rect x="21" y="23" width="22" height="5" rx="2.5" fill="#2468c9"/>
+                <rect x="21" y="34" width="27" height="5" rx="2.5" fill="#0aa6a3"/>
+                <rect x="21" y="45" width="18" height="5" rx="2.5" fill="#d75470"/>
+              </svg>
+            </div>
+            <div>
+              <h3>Task Input</h3>
+              <p>דדליין, קושי, משך וסוג משימה</p>
+              <div class="chip-row">
+                <span class="chip">Deadline</span>
+                <span class="chip">Difficulty</span>
+                <span class="chip">Duration</span>
+              </div>
+            </div>
+          </article>
+
+          <article class="flow-card wide ai-layer">
+            <div class="icon" style="background: var(--teal)">
+              <svg viewBox="0 0 64 64" aria-hidden="true">
+                <circle cx="24" cy="30" r="12" fill="#fff"/>
+                <circle cx="42" cy="24" r="10" fill="#fff"/>
+                <circle cx="42" cy="42" r="10" fill="#fff"/>
+                <path d="M26 30 H42 M34 24 V42" stroke="#0aa6a3" stroke-width="5" stroke-linecap="round"/>
+              </svg>
+            </div>
+            <div>
+              <h3>AI Analysis Layer</h3>
+              <p>Mood Analysis + Task Classification + Energy Prediction</p>
+              <div class="chip-row">
+                <span class="chip">LLM</span>
+                <span class="chip">Mood</span>
+                <span class="chip">Task Type</span>
+                <span class="chip">Energy</span>
+              </div>
+            </div>
+          </article>
+
+          <article class="flow-card wide scheduler">
+            <div class="icon" style="background: var(--violet)">
+              <svg viewBox="0 0 64 64" aria-hidden="true">
+                <rect x="10" y="14" width="44" height="38" rx="8" fill="#fff"/>
+                <rect x="18" y="25" width="28" height="5" rx="2.5" fill="#7567d9"/>
+                <rect x="18" y="36" width="18" height="5" rx="2.5" fill="#0aa6a3"/>
+                <path d="M14 22 H50" stroke="#7567d9" stroke-width="4"/>
+              </svg>
+            </div>
+            <div>
+              <h3>Scheduling Engine</h3>
+              <p>Rule-based dynamic planning: priorities, deadlines, no overlaps</p>
+              <div class="chip-row">
+                <span class="chip">Fixed First</span>
+                <span class="chip">Free Gaps</span>
+                <span class="chip">No Overlap</span>
+              </div>
+            </div>
+          </article>
+
+          <article class="flow-card schedule">
+            <div class="icon" style="background: var(--green)">
+              <svg viewBox="0 0 64 64" aria-hidden="true">
+                <rect x="12" y="14" width="40" height="38" rx="8" fill="#fff"/>
+                <rect x="19" y="24" width="24" height="5" rx="2.5" fill="#30a86b"/>
+                <rect x="19" y="34" width="30" height="5" rx="2.5" fill="#2468c9"/>
+                <rect x="19" y="44" width="18" height="5" rx="2.5" fill="#d75470"/>
+              </svg>
+            </div>
+            <div>
+              <h3>Daily Schedule</h3>
+              <p>לו״ז אישי וברור ליום הנוכחי</p>
+              <div class="mini-timeline">
+                <div class="time-row"><b>09:00</b><span style="width: 82%"></span></div>
+                <div class="time-row fixed"><b>12:30</b><span style="width: 70%"></span></div>
+                <div class="time-row"><b>15:00</b><span style="width: 62%"></span></div>
+              </div>
+            </div>
+          </article>
+
+          <article class="flow-card feedback">
+            <div class="icon" style="background: var(--rose)">
+              <svg viewBox="0 0 64 64" aria-hidden="true">
+                <path d="M12 18 H52 V43 H34 L24 53 V43 H12Z" fill="#fff"/>
+                <circle cx="24" cy="30" r="3" fill="#d75470"/>
+                <circle cx="32" cy="30" r="3" fill="#d75470"/>
+                <circle cx="40" cy="30" r="3" fill="#d75470"/>
+              </svg>
+            </div>
+            <div>
+              <h3>Feedback Loop</h3>
+              <p>המשוב משנה את ההמשך ואת התכנון הבא</p>
+              <div class="chip-row">
+                <span class="speech">“קשה מדי”</span>
+                <span class="speech">“בוצע”</span>
+              </div>
+            </div>
+          </article>
+
+          <div class="dynamic-example" aria-label="Dynamic feedback example">
+            <div class="example-panel">
+              <strong>Before Feedback</strong>
+              <span>09:00 Hard Task<br>11:00 Meeting<br>14:00 Report Writing</span>
+            </div>
+            <div class="example-trigger">Low energy<br>reported</div>
+            <div class="example-panel">
+              <strong>After Feedback</strong>
+              <span>09:00 Easy Task<br>11:00 Meeting<br>16:00 Report Writing</span>
+            </div>
+          </div>
+
+          <div class="engine-core">
+            <div>
+              <strong>Dynamic Planning Engine</strong>
+              <span>AI + Rules + User History → Personalized Day Plan</span>
+            </div>
+          </div>
+
+          <div class="callout energy-callout">
+            <b>Energy Prediction</b>
+            <span>משימות קשות משובצות בזמן אנרגיה מתאים.</span>
+          </div>
+
+          <div class="callout overlap-callout">
+            <b>No Overlaps</b>
+            <span>משימות קבועות חוסמות זמן; גמישות נכנסות רק לחלונות פנויים.</span>
+          </div>
+
+          <div class="callout personal-callout">
+            <b>Personalized Planning</b>
+            <span>המערכת לומדת מההיסטוריה האישית של המשתמש.</span>
+          </div>
+
+          <div class="callout feedback-callout">
+            <b>Dynamic Update</b>
+            <span>משוב בזמן אמת מחזיר את המערכת לתכנון מחדש.</span>
+          </div>
+          <div class="journey-title">
+            <div>
+              <h2>Visual User Journey</h2>
+              <p>User input &rarr; LLM analysis &rarr; smart schedule &rarr; feedback loop. The schedule adapts to mood, energy, sleep, tasks and real user feedback.</p>
+            </div>
+            <div class="journey-badge">Central dynamic workflow</div>
+          </div>
+
+          <svg class="journey-arrows" viewBox="0 0 1500 1320" role="img" aria-label="Dynamic workflow arrows">
+            <defs>
+              <marker id="journeyArrow" markerWidth="18" markerHeight="18" refX="15" refY="9" orient="auto">
+                <path d="M2 2 L16 9 L2 16Z" fill="#266bca"/>
+              </marker>
+              <marker id="journeyReturn" markerWidth="18" markerHeight="18" refX="15" refY="9" orient="auto">
+                <path d="M2 2 L16 9 L2 16Z" fill="#10aaa6"/>
+              </marker>
+            </defs>
+            <path d="M275 150 H420" fill="none" stroke="#266bca" stroke-width="18" stroke-linecap="round" marker-end="url(#journeyArrow)"/>
+            <path d="M735 150 H1085" fill="none" stroke="#266bca" stroke-width="18" stroke-linecap="round" marker-end="url(#journeyArrow)"/>
+            <path d="M1095 370 C1000 470 910 520 790 560" fill="none" stroke="#266bca" stroke-width="18" stroke-linecap="round" marker-end="url(#journeyArrow)"/>
+            <path d="M520 420 C590 495 630 530 710 560" fill="none" stroke="#266bca" stroke-width="18" stroke-linecap="round" marker-end="url(#journeyArrow)"/>
+            <path d="M710 790 C585 905 470 960 310 990" fill="none" stroke="#266bca" stroke-width="18" stroke-linecap="round" marker-end="url(#journeyArrow)"/>
+            <path d="M805 790 C950 900 1050 950 1190 990" fill="none" stroke="#266bca" stroke-width="18" stroke-linecap="round" marker-end="url(#journeyArrow)"/>
+            <path d="M1165 1160 C980 1260 650 1260 415 1165" fill="none" stroke="#10aaa6" stroke-width="16" stroke-linecap="round" stroke-dasharray="30 24" marker-end="url(#journeyReturn)"/>
+          </svg>
+
+          <section class="journey-stage journey-user" aria-label="User opens app">
+            <div class="journey-stage-title"><span class="journey-number">1</span>User Opens App</div>
+            <div class="journey-card journey-person-card">
+              <div class="journey-person">
+                <div class="journey-hair"></div>
+                <div class="journey-head"></div>
+                <div class="journey-body"></div>
+              </div>
+              <div class="journey-phone">
+                <span class="phone-line one"></span>
+                <span class="phone-line two"></span>
+                <span class="phone-line three"></span>
+              </div>
+            </div>
+          </section>
+
+          <section class="journey-stage journey-checkin" aria-label="Daily check-in">
+            <div class="journey-stage-title"><span class="journey-number">2</span>Daily Check-In</div>
+            <div class="journey-card journey-input-card">
+              <div class="user-input-note">
+                <strong>User input example</strong>
+                <span>"I slept only 5 hours. I feel stressed and my energy is low today."</span>
+              </div>
+              <div class="input-value-row">
+                <span class="row-label">
+                  <span class="value-icon" aria-hidden="true">
+                    <svg viewBox="0 0 32 32"><circle cx="16" cy="16" r="12" fill="none" stroke="#fff" stroke-width="3"/><circle cx="12" cy="13" r="2" fill="#fff"/><circle cx="20" cy="13" r="2" fill="#fff"/><path d="M10 22 C13 19 19 19 22 22" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round"/></svg>
+                  </span>
+                  Mood
+                </span>
+                <b>Stressed</b>
+              </div>
+              <div class="input-value-row">
+                <span class="row-label">
+                  <span class="value-icon" style="background: var(--amber)" aria-hidden="true">
+                    <svg viewBox="0 0 32 32"><rect x="5" y="10" width="19" height="12" rx="4" fill="none" stroke="#fff" stroke-width="3"/><rect x="25" y="14" width="3" height="4" rx="1" fill="#fff"/><rect x="9" y="14" width="8" height="4" rx="2" fill="#fff"/></svg>
+                  </span>
+                  Energy
+                </span>
+                <b>35%</b>
+              </div>
+              <div class="input-value-row">
+                <span class="row-label">
+                  <span class="value-icon" style="background: var(--violet)" aria-hidden="true">
+                    <svg viewBox="0 0 32 32"><path d="M22 25 C14 26 7 20 7 12 C7 8 9 5 12 3 C11 12 16 19 25 20 C24 22 23 24 22 25Z" fill="#fff"/></svg>
+                  </span>
+                  Sleep
+                </span>
+                <b>5h</b>
+              </div>
+            </div>
+          </section>
+
+          <section class="journey-stage journey-task" aria-label="Task input">
+            <div class="journey-stage-title"><span class="journey-number">3</span>Task Input</div>
+            <div class="journey-card journey-task-card">
+              <div class="task-pill"><span>Report Writing</span><b class="difficulty">Hard</b></div>
+              <div class="task-pill"><span>Team Meeting</span><b class="difficulty medium">Fixed</b></div>
+              <div class="task-pill"><span>Email Review</span><b class="difficulty easy">Easy</b></div>
+            </div>
+          </section>
+
+          <section class="journey-stage journey-ai" aria-label="AI analysis layer and algorithms">
+            <div class="ai-core-visual">
+              <h3>AI Analysis Layer</h3>
+              <div class="ai-labels">
+                <div class="ai-label">Mood Analysis</div>
+                <div class="ai-label">Task Classification</div>
+              </div>
+              <div class="llm-visual" aria-label="LLM text analysis visual">
+                <div class="llm-doc">Text</div>
+                <div class="llm-network">
+                  <span class="network-line one"></span>
+                  <span class="network-line two"></span>
+                  <span class="network-line three"></span>
+                  <span class="node a"></span>
+                  <span class="node b"></span>
+                  <span class="node c"></span>
+                  <span class="node d"></span>
+                  <div class="llm-chip">LLM</div>
+                </div>
+              </div>
+              <div class="ai-labels">
+                <div class="ai-label">Energy Prediction</div>
+                <div class="ai-label">Rule-Based Scheduling</div>
+              </div>
+            </div>
+          </section>
+
+          <section class="journey-stage journey-schedule" aria-label="Smart daily schedule">
+            <div class="journey-stage-title"><span class="journey-number">4</span>Smart Daily Schedule</div>
+            <div class="journey-card journey-schedule-card">
+              <div class="schedule-result-list">
+                <div class="schedule-line"><b>09:00</b><span>Easy task: Email review</span></div>
+                <div class="schedule-line fixed"><b>11:00</b><span>Fixed task: Team meeting</span></div>
+                <div class="schedule-line"><b>16:00</b><span>Hard task: Report writing</span></div>
+              </div>
+              <div class="schedule-note">Result: hard work is moved to a later energy window, while fixed tasks stay in place and no overlaps are created.</div>
+            </div>
+          </section>
+
+          <section class="journey-stage journey-feedback" aria-label="Feedback loop">
+            <div class="journey-stage-title"><span class="journey-number">5</span>Feedback Loop</div>
+            <div class="journey-card journey-feedback-card">
+              <div class="feedback-bubble">Low energy today</div>
+              <div class="feedback-result">Schedule changes dynamically</div>
+            </div>
+          </section>
+        </section>
+
+        <section class="support-grid" aria-label="Supporting compact blocks">
+          <section class="support-card">
+            <div class="support-head">
+              <span class="dot">AI</span>
+              <h2>AI Modules</h2>
+            </div>
+            <div class="module-grid">
+              <article class="module">
+                <svg viewBox="0 0 220 92" role="img" aria-label="LLM mood analysis">
+                  <rect x="24" y="28" width="58" height="28" rx="14" fill="#eaf3ff"/>
+                  <text x="53" y="47" text-anchor="middle" font-family="Arial" font-size="15" font-weight="900" fill="#163c78">Text</text>
+                  <path d="M92 42 H128" stroke="#2468c9" stroke-width="7" stroke-linecap="round"/>
+                  <path d="M123 29 L146 42 L123 55" fill="#2468c9"/>
+                  <circle cx="176" cy="42" r="23" fill="#eafaf8"/>
+                  <text x="176" y="48" text-anchor="middle" font-family="Arial" font-size="14" font-weight="900" fill="#0aa6a3">Mood</text>
+                </svg>
+                <strong>Mood Analysis</strong>
+                <span class="desc">LLM / Sentiment Analysis</span>
+                <span>ניתוח טקסט חופשי ומצב רגשי.</span>
+              </article>
+              <article class="module">
+                <svg viewBox="0 0 220 92" role="img" aria-label="Task classification">
+                  <rect x="24" y="22" width="50" height="44" rx="12" fill="#fff5df"/>
+                  <rect x="94" y="26" width="64" height="10" rx="5" fill="#d75470"/>
+                  <rect x="94" y="47" width="84" height="10" rx="5" fill="#0aa6a3"/>
+                  <circle cx="185" cy="43" r="20" fill="#2468c9"/>
+                  <text x="185" y="49" text-anchor="middle" font-family="Arial" font-size="14" font-weight="900" fill="#fff">Type</text>
+                </svg>
+                <strong>Task Classification</strong>
+                <span class="desc">Easy / Medium / Hard</span>
+                <span>קבועה/גמישה, קשה/קלה, דחופה/רגילה.</span>
+              </article>
+              <article class="module">
+                <svg viewBox="0 0 220 92" role="img" aria-label="Energy prediction">
+                  <rect x="28" y="27" width="106" height="38" rx="15" fill="#eafaf8" stroke="#0aa6a3" stroke-width="5"/>
+                  <rect x="137" y="38" width="12" height="16" rx="4" fill="#0aa6a3"/>
+                  <rect x="41" y="36" width="24" height="20" rx="7" fill="#30a86b"/>
+                  <rect x="70" y="36" width="24" height="20" rx="7" fill="#f4b13f"/>
+                  <rect x="99" y="36" width="24" height="20" rx="7" fill="#d75470"/>
+                  <path d="M166 60 C180 28 196 44 202 24" fill="none" stroke="#2468c9" stroke-width="7" stroke-linecap="round"/>
+                  <circle cx="166" cy="60" r="6" fill="#2468c9"/>
+                  <circle cx="202" cy="24" r="6" fill="#2468c9"/>
+                </svg>
+                <strong>Energy Prediction</strong>
+                <span class="desc">Rule-Based + Future ML Models (LSTM)</span>
+                <span>אילוצים, דדליין, עדיפות וללא חפיפות.</span>
+              </article>
+              <article class="module">
+                <svg viewBox="0 0 220 92" role="img" aria-label="Scheduler engine">
+                  <rect x="28" y="22" width="74" height="48" rx="14" fill="#eef0ff"/>
+                  <line x1="48" y1="34" x2="88" y2="34" stroke="#7567d9" stroke-width="7" stroke-linecap="round"/>
+                  <line x1="48" y1="48" x2="78" y2="48" stroke="#0aa6a3" stroke-width="7" stroke-linecap="round"/>
+                  <line x1="48" y1="62" x2="94" y2="62" stroke="#d75470" stroke-width="7" stroke-linecap="round"/>
+                  <path d="M114 46 H148" stroke="#2468c9" stroke-width="8" stroke-linecap="round"/>
+                  <path d="M142 31 L170 46 L142 61" fill="#2468c9"/>
+                  <rect x="174" y="28" width="30" height="36" rx="10" fill="#eafaf8" stroke="#0aa6a3" stroke-width="4"/>
+                </svg>
+                <strong>Scheduler Engine</strong>
+                <span class="desc">Match Tasks with Energy Levels</span>
+                <span>השוואה בין תכנון לביצוע בפועל.</span>
+              </article>
+            </div>
+            <div class="model-note">
+              <b>Model Comparison</b>
+              <span class="desc">Compare LLM models by accuracy, response time, and Hebrew/Arabic support.</span>
+              <span>נשווה מודלי שפה לפי דיוק, זמן תגובה והתאמה לעברית/ערבית.</span>
+            </div>
+          </section>
+
+          <section class="support-card">
+            <div class="support-head">
+              <span class="dot">M</span>
+              <h2>Metrics</h2>
+            </div>
+            <div class="metric-grid">
+              <article class="metric">
+                <span class="big">A</span>
+                <strong>Accuracy</strong>
+                <span class="desc">Did the AI classify tasks correctly?</span>
+                <span>האם מצב/משימה זוהו נכון?</span>
+              </article>
+              <article class="metric">
+                <span class="big">T</span>
+                <strong>Response Time</strong>
+                <span class="desc">Is the schedule generated quickly?</span>
+                <span>האם התכנון מהיר מספיק?</span>
+              </article>
+              <article class="metric">
+                <span class="big">F</span>
+                <strong>Feedback Quality</strong>
+                <span class="desc">Which feedback improves planning most?</span>
+                <span>איזה משוב באמת משפר תכנון?</span>
+              </article>
+              <article class="metric">
+                <span class="big">P</span>
+                <strong>Personalization</strong>
+                <span class="desc">Does planning improve over time?</span>
+                <span>האם הלו״ז משתפר לאורך זמן?</span>
+              </article>
+            </div>
+            <div class="metric-chart" aria-label="Compact metrics visualization">
+              <svg viewBox="0 0 420 150" role="img" aria-label="Metrics and model comparison chart">
+                <line x1="42" y1="122" x2="378" y2="122" stroke="#9eb4d2" stroke-width="4"/>
+                <rect x="72" y="70" width="34" height="52" rx="8" fill="#2468c9"/>
+                <rect x="142" y="46" width="34" height="76" rx="8" fill="#0aa6a3"/>
+                <rect x="212" y="82" width="34" height="40" rx="8" fill="#d75470"/>
+                <rect x="282" y="58" width="34" height="64" rx="8" fill="#f4b13f"/>
+                <path d="M72 56 C130 52 150 30 204 42 C258 54 280 32 336 24" fill="none" stroke="#163c78" stroke-width="7" stroke-linecap="round"/>
+                <circle cx="72" cy="56" r="7" fill="#163c78"/>
+                <circle cx="204" cy="42" r="7" fill="#163c78"/>
+                <circle cx="336" cy="24" r="7" fill="#163c78"/>
+                <text x="210" y="144" text-anchor="middle" font-family="Arial" font-size="15" font-weight="900" fill="#163c78">accuracy | time | feedback | personalization</text>
+              </svg>
+            </div>
+          </section>
+
+          <section class="support-card">
+            <div class="support-head">
+              <span class="dot">T</span>
+              <h2>Technologies</h2>
+            </div>
+            <div class="tech-grid">
+              <article class="tech">
+                <strong>React</strong>
+                <span class="desc">Daily check-in, tasks, feedback, and schedule UI.</span>
+                <span>React app לקלט יומי, משימות ולו״ז.</span>
+              </article>
+              <article class="tech">
+                <strong>Node.js / Express</strong>
+                <span class="desc">REST API for user input, tasks, and generated plans.</span>
+                <span>Node/Express לניהול זרימת המידע.</span>
+              </article>
+              <article class="tech">
+                <strong>MySQL + REST API</strong>
+                <span class="desc">Stores user history, tasks, schedules, and feedback.</span>
+                <span>היסטוריה אישית, לא מרכז הפוסטר.</span>
+              </article>
+              <article class="tech">
+                <strong>Python + LLM</strong>
+                <span class="desc">AI services for mood, classification, and prediction.</span>
+                <span>השוואת LLM ותמיכה בעברית/ערבית.</span>
+              </article>
+            </div>
+            <div class="future-title">Future Development</div>
+            <div class="future-strip">
+              <span>Hebrew/Arabic</span>
+              <span>Multi-user</span>
+              <span>AI Models</span>
+              <span>Energy Prediction</span>
+            </div>
+            <div class="support-visual" aria-label="Compact technology support visual">
+              <svg viewBox="0 0 420 150" role="img" aria-label="Technology support diagram">
+                <rect x="34" y="38" width="86" height="54" rx="16" fill="#eaf3ff" stroke="#c7d9f0"/>
+                <text x="77" y="70" text-anchor="middle" font-family="Arial" font-size="16" font-weight="900" fill="#163c78">React</text>
+                <path d="M130 65 H174" stroke="#2468c9" stroke-width="8" stroke-linecap="round"/>
+                <path d="M168 50 L194 65 L168 80" fill="#2468c9"/>
+                <rect x="202" y="38" width="86" height="54" rx="16" fill="#fff5df" stroke="#c7d9f0"/>
+                <text x="245" y="70" text-anchor="middle" font-family="Arial" font-size="16" font-weight="900" fill="#163c78">API</text>
+                <path d="M298 65 H338" stroke="#0aa6a3" stroke-width="8" stroke-linecap="round"/>
+                <path d="M332 50 L358 65 L332 80" fill="#0aa6a3"/>
+                <circle cx="378" cy="65" r="30" fill="#eafaf8" stroke="#c7d9f0"/>
+                <text x="378" y="72" text-anchor="middle" font-family="Arial" font-size="16" font-weight="900" fill="#0aa6a3">AI</text>
+                <text x="210" y="130" text-anchor="middle" font-family="Arial" font-size="15" font-weight="900" fill="#163c78">React + Express + MySQL + Python AI</text>
+              </svg>
+            </div>
+          </section>
+        </section>
+      </main>
+    </article>
+  </body>
+</html>

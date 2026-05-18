@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { BrainCircuit, CalendarClock, RefreshCw, ShieldCheck } from 'lucide-react';
 import { plannerApi } from './api/plannerApi.js';
 import { DailyCheckIn } from './components/DailyCheckIn.jsx';
 import { FeedbackPanel } from './components/FeedbackPanel.jsx';
@@ -80,8 +81,10 @@ export function App() {
           <div>
             <p className="eyebrow">Current Week</p>
             <h1>Smart Planner</h1>
+            <span className="toolbar-copy">Plan the day around mood, energy, fixed commitments, and real feedback.</span>
           </div>
           <button className="primary-action" type="button" onClick={handleGenerateSchedule}>
+            <CalendarClock size={18} />
             Generate Schedule
           </button>
         </section>
@@ -89,22 +92,48 @@ export function App() {
         {isLoading ? (
           <div className="empty-state">Loading workspace...</div>
         ) : (
-          <div className="work-grid">
-            <div className="left-column">
-              <DailyCheckIn onSubmit={handleDailyLogSubmit} latestLog={bootstrap?.latest_daily_log} />
-              <TaskForm onSubmit={handleTaskSubmit} />
+          <>
+            <section className="insight-strip" aria-label="Planner workflow highlights">
+              <article>
+                <BrainCircuit size={26} />
+                <div>
+                  <strong>AI-aware planning</strong>
+                  <span>Mood, stress, sleep, and energy guide task order.</span>
+                </div>
+              </article>
+              <article>
+                <ShieldCheck size={26} />
+                <div>
+                  <strong>Fixed time protected</strong>
+                  <span>Static events block time before flexible tasks are placed.</span>
+                </div>
+              </article>
+              <article>
+                <RefreshCw size={26} />
+                <div>
+                  <strong>Dynamic feedback loop</strong>
+                  <span>User feedback refreshes the next schedule automatically.</span>
+                </div>
+              </article>
+            </section>
+
+            <div className="work-grid">
+              <div className="left-column">
+                <DailyCheckIn onSubmit={handleDailyLogSubmit} latestLog={bootstrap?.latest_daily_log} />
+                <TaskForm onSubmit={handleTaskSubmit} />
+              </div>
+              <div className="right-column">
+                <TaskList tasks={tasks} />
+                <ScheduleView
+                  schedule={schedule}
+                  items={scheduleItems}
+                  renderFeedback={(item) => (
+                    <FeedbackPanel item={item} onSubmit={handleFeedbackSubmit} />
+                  )}
+                />
+              </div>
             </div>
-            <div className="right-column">
-              <TaskList tasks={tasks} />
-              <ScheduleView
-                schedule={schedule}
-                items={scheduleItems}
-                renderFeedback={(item) => (
-                  <FeedbackPanel item={item} onSubmit={handleFeedbackSubmit} />
-                )}
-              />
-            </div>
-          </div>
+          </>
         )}
       </main>
     </Layout>

@@ -1,0 +1,466 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Smart Day Planner Poster</title>
+    <style>
+      :root {
+        --ink: #172033;
+        --muted: #5f6f87;
+        --paper: #f7f9ff;
+        --panel: #ffffff;
+        --line: #d9e1ef;
+        --blue: #5468d4;
+        --violet: #8057b7;
+        --teal: #168a8a;
+        --amber: #d9922f;
+        --green: #2f8f5b;
+        --rose: #b94a62;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        color: var(--ink);
+        background: #dfe7f3;
+        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+      }
+
+      .poster {
+        width: min(1180px, 100%);
+        min-height: 1680px;
+        margin: 0 auto;
+        background: var(--paper);
+        border-top: 18px solid var(--blue);
+        border-bottom: 18px solid var(--violet);
+        box-shadow: 0 18px 60px rgba(23, 32, 51, 0.18);
+      }
+
+      header {
+        display: grid;
+        grid-template-columns: 1fr 260px;
+        gap: 28px;
+        padding: 42px 54px 30px;
+        color: #fff;
+        background: linear-gradient(90deg, var(--blue), var(--violet));
+      }
+
+      .eyebrow {
+        margin: 0 0 10px;
+        font-size: 18px;
+        font-weight: 800;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        opacity: 0.88;
+      }
+
+      h1 {
+        margin: 0;
+        font-size: 66px;
+        line-height: 1;
+      }
+
+      .subtitle {
+        margin: 18px 0 0;
+        max-width: 760px;
+        font-size: 25px;
+        line-height: 1.45;
+        opacity: 0.92;
+      }
+
+      .authors {
+        align-self: end;
+        border: 1px solid rgba(255, 255, 255, 0.32);
+        border-radius: 10px;
+        padding: 18px;
+        background: rgba(255, 255, 255, 0.12);
+      }
+
+      .authors strong {
+        display: block;
+        margin-bottom: 8px;
+        font-size: 22px;
+      }
+
+      .authors span {
+        display: block;
+        font-size: 16px;
+        opacity: 0.88;
+      }
+
+      .content {
+        display: grid;
+        grid-template-columns: 1.05fr 1fr 1fr;
+        gap: 22px;
+        padding: 30px 40px 44px;
+      }
+
+      section {
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 22px;
+        background: var(--panel);
+      }
+
+      section.wide {
+        grid-column: span 2;
+      }
+
+      section.full {
+        grid-column: 1 / -1;
+      }
+
+      h2 {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin: 0 0 16px;
+        color: var(--blue);
+        font-size: 28px;
+      }
+
+      h3 {
+        margin: 18px 0 8px;
+        color: var(--teal);
+        font-size: 20px;
+      }
+
+      p {
+        margin: 0 0 12px;
+        color: var(--muted);
+        font-size: 17px;
+        line-height: 1.55;
+      }
+
+      ul {
+        margin: 0;
+        padding-left: 22px;
+        color: var(--muted);
+        font-size: 17px;
+        line-height: 1.5;
+      }
+
+      li + li {
+        margin-top: 6px;
+      }
+
+      .flow {
+        display: grid;
+        grid-template-columns: repeat(5, 1fr);
+        gap: 12px;
+      }
+
+      .flow div {
+        min-height: 92px;
+        border: 1px solid var(--line);
+        border-radius: 9px;
+        padding: 12px;
+        background: #f4f7ff;
+      }
+
+      .flow strong {
+        display: block;
+        color: var(--ink);
+        font-size: 17px;
+      }
+
+      .flow span {
+        display: block;
+        margin-top: 8px;
+        color: var(--muted);
+        font-size: 14px;
+        line-height: 1.35;
+      }
+
+      .architecture {
+        display: grid;
+        gap: 10px;
+      }
+
+      .layer {
+        display: grid;
+        grid-template-columns: 180px 1fr;
+        gap: 12px;
+        align-items: center;
+        border-radius: 8px;
+        padding: 12px;
+        background: #f7f9fd;
+      }
+
+      .layer strong {
+        color: var(--ink);
+      }
+
+      .layer span {
+        color: var(--muted);
+      }
+
+      .module-grid {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 12px;
+      }
+
+      .module {
+        border-left: 5px solid var(--teal);
+        border-radius: 8px;
+        padding: 12px;
+        background: #f3fbfb;
+      }
+
+      .module:nth-child(2) {
+        border-left-color: var(--amber);
+        background: #fff8ed;
+      }
+
+      .module:nth-child(3) {
+        border-left-color: var(--green);
+        background: #f2faf5;
+      }
+
+      .module:nth-child(4) {
+        border-left-color: var(--rose);
+        background: #fff3f6;
+      }
+
+      .module strong {
+        display: block;
+        margin-bottom: 5px;
+      }
+
+      .module span {
+        color: var(--muted);
+        font-size: 15px;
+        line-height: 1.35;
+      }
+
+      .database-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 9px;
+      }
+
+      .database-list span {
+        border-radius: 999px;
+        padding: 8px 12px;
+        color: #40506c;
+        background: #ecf1fa;
+        font-size: 15px;
+        font-weight: 700;
+      }
+
+      .highlight {
+        border-left: 6px solid var(--blue);
+        background: #f4f6ff;
+      }
+
+      .footer-note {
+        padding: 0 40px 34px;
+        color: var(--muted);
+        font-size: 14px;
+        text-align: center;
+      }
+
+      @media print {
+        body {
+          background: #fff;
+        }
+
+        .poster {
+          width: 100%;
+          min-height: auto;
+          box-shadow: none;
+        }
+
+        @page {
+          size: A3 portrait;
+          margin: 0.35in;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <article class="poster">
+      <header>
+        <div>
+          <p class="eyebrow">B.Sc Final Project</p>
+          <h1>Smart Day Planner</h1>
+          <p class="subtitle">
+            A dynamic AI-supported planner that organizes daily tasks according to mood,
+            energy, sleep, stress, deadlines, fixed-time commitments, and user feedback.
+          </p>
+        </div>
+        <div class="authors">
+          <strong>Sara Alhamede</strong>
+          <strong>Amina Fraheen</strong>
+          <span>Smart Planner / יום חכם</span>
+          <span>React + Express + MySQL</span>
+        </div>
+      </header>
+
+      <div class="content">
+        <section>
+          <h2>Problem</h2>
+          <p>
+            Students often manage tasks using static to-do lists that ignore real mental state.
+            Deadlines, stress, poor sleep, and low energy can lead to procrastination and weak productivity.
+          </p>
+          <ul>
+            <li>Too many tasks and deadlines</li>
+            <li>Low energy during important work</li>
+            <li>Stress and mood changes during the day</li>
+            <li>Fixed commitments that must not overlap</li>
+          </ul>
+        </section>
+
+        <section>
+          <h2>Solution</h2>
+          <p>
+            Smart Day Planner creates a personalized daily schedule by combining user input,
+            rule-based AI helpers, fixed-time blocks, and feedback-based rescheduling.
+          </p>
+          <ul>
+            <li>Hard tasks are matched with higher energy</li>
+            <li>Easy tasks are moved earlier when energy is low</li>
+            <li>Fixed-time tasks reserve their exact time</li>
+            <li>Feedback updates the remaining day</li>
+          </ul>
+        </section>
+
+        <section class="highlight">
+          <h2>Main Idea</h2>
+          <p>
+            The user remains the main data source. External datasets improve the initial AI logic,
+            while personal history becomes more important as the system collects real feedback.
+          </p>
+        </section>
+
+        <section class="full">
+          <h2>System Flow</h2>
+          <div class="flow">
+            <div>
+              <strong>User Input</strong>
+              <span>Mood, energy, sleep, stress, tasks, deadlines</span>
+            </div>
+            <div>
+              <strong>AI Analysis</strong>
+              <span>Emotion, task category, duration, predicted energy</span>
+            </div>
+            <div>
+              <strong>Scheduler</strong>
+              <span>Fixed tasks first, flexible tasks in free gaps</span>
+            </div>
+            <div>
+              <strong>Daily Plan</strong>
+              <span>Personalized schedule with explanations</span>
+            </div>
+            <div>
+              <strong>Feedback</strong>
+              <span>Completion, actual time, mood after, energy after</span>
+            </div>
+          </div>
+        </section>
+
+        <section class="wide">
+          <h2>Architecture</h2>
+          <div class="architecture">
+            <div class="layer">
+              <strong>Presentation Layer</strong>
+              <span>React frontend: check-in, task form, schedule view, feedback form</span>
+            </div>
+            <div class="layer">
+              <strong>Application Layer</strong>
+              <span>Node/Express API: routes, services, validation, response handling</span>
+            </div>
+            <div class="layer">
+              <strong>Processing Layer</strong>
+              <span>Scheduler, mood and energy analyzer, task categorizer, feedback learning</span>
+            </div>
+            <div class="layer">
+              <strong>Data Layer</strong>
+              <span>MySQL database: users, tasks, logs, schedules, feedback, survey responses</span>
+            </div>
+          </div>
+        </section>
+
+        <section>
+          <h2>Database</h2>
+          <div class="database-list">
+            <span>users</span>
+            <span>user_preferences</span>
+            <span>daily_logs</span>
+            <span>tasks</span>
+            <span>schedules</span>
+            <span>schedule_items</span>
+            <span>feedback</span>
+            <span>ai_predictions</span>
+            <span>survey_responses</span>
+          </div>
+        </section>
+
+        <section class="wide">
+          <h2>AI Roles</h2>
+          <div class="module-grid">
+            <div class="module">
+              <strong>Mood & Energy Analyzer</strong>
+              <span>Uses mood, stress, sleep, tiredness, and text notes to estimate the user's current state.</span>
+            </div>
+            <div class="module">
+              <strong>Task Categorizer</strong>
+              <span>Classifies tasks such as study, coding, writing, and routine work.</span>
+            </div>
+            <div class="module">
+              <strong>Smart Scheduler</strong>
+              <span>Combines fixed-time tasks, flexible tasks, deadlines, priority, difficulty, and energy.</span>
+            </div>
+            <div class="module">
+              <strong>Feedback Learning</strong>
+              <span>Uses actual duration, difficulty after, energy after, and mood after to improve planning.</span>
+            </div>
+          </div>
+        </section>
+
+        <section>
+          <h2>Dynamic Feedback</h2>
+          <p>
+            After each task, the user reports what happened. If energy drops or a task is not completed,
+            the remaining schedule is regenerated.
+          </p>
+          <ul>
+            <li>Completed task closes automatically</li>
+            <li>Unfinished task keeps remaining time</li>
+            <li>Low energy moves easier tasks earlier</li>
+            <li>Hard tasks become shorter focus blocks</li>
+          </ul>
+        </section>
+
+        <section>
+          <h2>Datasets</h2>
+          <p>
+            External datasets are used to improve emotion analysis, task categorization, and time estimation.
+            Our collected survey dataset supports the relationship between sleep, stress, energy, productivity, and task completion.
+          </p>
+        </section>
+
+        <section>
+          <h2>Future Work</h2>
+          <ul>
+            <li>Python AI service for real ML models</li>
+            <li>Translation support for Arabic and Hebrew input</li>
+            <li>Multi-user personalization</li>
+            <li>Contrastive learning to compare similar user patterns</li>
+          </ul>
+        </section>
+      </div>
+
+      <p class="footer-note">
+        Smart Day Planner shows how daily user input, database history, AI helpers, and feedback can work together
+        to create a more adaptive and realistic personal planning system.
+      </p>
+    </article>
+  </body>
+</html>
