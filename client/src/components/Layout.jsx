@@ -26,6 +26,7 @@ export function Layout({
   const lastName = lastNameParts.join(' ');
   const initials = `${firstName?.[0] || 'S'}${lastName?.[0] || 'A'}`.toUpperCase();
   const profileImage = user?.profile_image;
+  const currentYear = new Date().getFullYear();
 
   return (
     <div className="app-shell">
@@ -98,6 +99,11 @@ export function Layout({
       <div className="content-frame">
         {message ? <div className="status-banner">{message}</div> : null}
         {children}
+        <footer className="app-footer">
+          <strong>© {currentYear} Smart Day Planner. All rights reserved.</strong>
+          <span>Sara Alhamede & Amina Alfrahen</span>
+          <span>Computer Science Department, Sapir Academic College</span>
+        </footer>
       </div>
     </div>
   );

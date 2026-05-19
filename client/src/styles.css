@@ -421,6 +421,35 @@ label {
   padding: clamp(16px, 3vw, 34px);
 }
 
+.app-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px 18px;
+  width: min(1560px, 100%);
+  margin: 28px auto 0;
+  border: 1px solid rgba(215, 226, 245, 0.82);
+  border-radius: 22px;
+  padding: 16px 20px;
+  color: rgba(255, 255, 255, 0.94);
+  background:
+    linear-gradient(120deg, rgba(255, 255, 255, 0.12), transparent 30%),
+    linear-gradient(90deg, var(--brand), var(--brand-deep));
+  box-shadow: var(--soft-shadow);
+  text-align: center;
+  font-size: 0.94rem;
+  font-weight: 850;
+}
+
+.app-footer strong {
+  font-weight: 1000;
+}
+
+.app-footer span {
+  opacity: 0.9;
+}
+
 .workspace {
   width: min(1560px, 100%);
   margin: 0 auto;
