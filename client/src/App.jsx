@@ -186,10 +186,16 @@ export function App() {
               Core scheduling algorithm first. AI helps improve analysis, but the algorithm makes the plan.
             </span>
           </div>
-          <button className="primary-action" type="button" onClick={handleGenerateSchedule}>
-            <CalendarClock size={18} />
-            Generate Schedule
-          </button>
+          <div className="toolbar-actions">
+            <button className="secondary-action" type="button" onClick={() => setCurrentPage('weekly')}>
+              <ArrowLeft size={18} />
+              Weekly Dashboard
+            </button>
+            <button className="primary-action" type="button" onClick={handleGenerateSchedule}>
+              <CalendarClock size={18} />
+              Generate Schedule
+            </button>
+          </div>
         </section>
 
         {isLoading ? (

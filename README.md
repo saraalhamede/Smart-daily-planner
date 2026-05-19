@@ -520,3 +520,19 @@ git switch -c first-version
 - الاتجاه النهائي هو React + Express + MySQL + Python AI لاحقًا
 
 هذا الـ README يلخص كل ما فهمناه وثبتناه اليوم، ويمكن استخدامه كمرجع أثناء دراسة المشروع أو عند شرحه لاحقًا.
+
+## Development Change Log
+
+### 2026-05-19
+- Added registration-first flow before opening the main planner.
+- Added user profile menu with view information, edit information, profile picture upload, and logout.
+- Added separate About page for the project and team details.
+- Updated the header week display to show the current week of the month without the project name.
+- Added the Weekly Task Management dashboard as the first screen after login.
+- Added current-week circular day cards with date, day name, progress fill, today highlight, future neutral state, and new-user empty state.
+- Added weekly unfinished tasks, weekly productivity review, and anger/stress overview cards.
+- Added navigation from weekly day circles to a prepared daily-detail page.
+- Added footer with copyright, student names, and Sapir Academic College department details.
+- Added a Weekly Dashboard back button inside the Daily Planner page.
+
+> Keep updating this section after every important implementation change.
