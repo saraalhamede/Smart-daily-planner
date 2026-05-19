@@ -2,7 +2,7 @@ import { Bot, CalendarDays, Edit3, Eye, LogOut, Menu, Settings, Sparkles } from 
 import { useState } from 'react';
 
 const navItems = [
-  { label: 'Calendar', detail: 'Daily plan', icon: CalendarDays },
+  { label: 'Calendar', detail: 'Weekly dashboard', icon: CalendarDays },
   { label: 'AI Notes', detail: 'Smart insights', icon: Bot },
   { label: 'Progress', detail: 'Feedback loop', icon: Sparkles },
   { label: 'Settings', detail: 'Preferences', icon: Settings }

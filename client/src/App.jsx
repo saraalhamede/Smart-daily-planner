@@ -1,5 +1,16 @@
 import { useEffect, useState } from 'react';
-import { CalendarClock, Database, RefreshCw, ShieldCheck, SlidersHorizontal } from 'lucide-react';
+import {
+  ArrowLeft,
+  CalendarClock,
+  Clock3,
+  Database,
+  Flame,
+  ListChecks,
+  RefreshCw,
+  ShieldCheck,
+  SlidersHorizontal,
+  Target
+} from 'lucide-react';
 import { plannerApi } from './api/plannerApi.js';
 import { DailyCheckIn } from './components/DailyCheckIn.jsx';
 import { FeedbackPanel } from './components/FeedbackPanel.jsx';
@@ -20,7 +31,8 @@ const defaultLocalUser = {
 export function App() {
   const [localUser, setLocalUser] = useState(() => readRegisteredUser());
   const [profileMode, setProfileMode] = useState(null);
-  const [currentPage, setCurrentPage] = useState('planner');
+  const [currentPage, setCurrentPage] = useState('weekly');
+  const [selectedDay, setSelectedDay] = useState(null);
   const [bootstrap, setBootstrap] = useState(null);
   const [tasks, setTasks] = useState([]);
   const [schedule, setSchedule] = useState(null);
@@ -111,7 +123,8 @@ export function App() {
     localStorage.removeItem(registrationKey);
     setLocalUser(null);
     setProfileMode(null);
-    setCurrentPage('planner');
+    setCurrentPage('weekly');
+    setSelectedDay(null);
     setBootstrap(null);
     setTasks([]);
     setSchedule(null);
@@ -132,7 +145,7 @@ export function App() {
       onViewProfile={() => setProfileMode('view')}
       onLogout={handleLogout}
       onOpenAbout={() => setCurrentPage('about')}
-      onOpenPlanner={() => setCurrentPage('planner')}>
+      onOpenPlanner={() => setCurrentPage('weekly')}>
       <main className="workspace">
         {profileMode ? (
           <ProfilePanel
@@ -144,7 +157,25 @@ export function App() {
         ) : null}
 
         {currentPage === 'about' ? (
-          <AboutPage onBack={() => setCurrentPage('planner')} />
+          <AboutPage onBack={() => setCurrentPage('weekly')} />
+        ) : currentPage === 'weekly' ? (
+          <WeeklyDashboard
+            tasks={tasks}
+            scheduleItems={scheduleItems}
+            latestLog={bootstrap?.latest_daily_log}
+            isLoading={isLoading}
+            onOpenPlanner={() => setCurrentPage('planner')}
+            onSelectDay={(day) => {
+              setSelectedDay(day);
+              setCurrentPage('day');
+            }}
+          />
+        ) : currentPage === 'day' ? (
+          <DailyDetailPlaceholder
+            day={selectedDay}
+            onBack={() => setCurrentPage('weekly')}
+            onOpenPlanner={() => setCurrentPage('planner')}
+          />
         ) : (
           <>
         <section className="toolbar-strip">
@@ -218,6 +249,187 @@ export function App() {
         )}
       </main>
     </Layout>
+  );
+}
+
+function WeeklyDashboard({ tasks, scheduleItems, latestLog, isLoading, onOpenPlanner, onSelectDay }) {
+  const weekDays = getCurrentWeekDays();
+  const weeklyData = buildWeeklyDashboardData({ tasks, scheduleItems, latestLog, weekDays });
+
+  if (isLoading) {
+    return <div className="empty-state">Loading weekly dashboard...</div>;
+  }
+
+  return (
+    <section className="weekly-dashboard">
+      <div className="weekly-hero">
+        <div>
+          <p className="eyebrow">{weeklyData.rangeLabel}</p>
+          <h1>Current Week</h1>
+          <span className="toolbar-copy">Your weekly task management dashboard at a glance.</span>
+        </div>
+        <button className="primary-action" type="button" onClick={onOpenPlanner}>
+          <CalendarClock size={18} />
+          Open Daily Planner
+        </button>
+      </div>
+
+      {weeklyData.isNewUser ? (
+        <div className="new-user-note">
+          <strong>No results yet</strong>
+          <span>Start adding tasks and daily check-ins to see your weekly progress.</span>
+        </div>
+      ) : null}
+
+      <section className="day-circle-section" aria-label="Current week days">
+        <div className="section-title-row">
+          <div>
+            <p className="eyebrow">7 Day View</p>
+            <h2>Current Week</h2>
+          </div>
+          {weeklyData.isNewUser ? <span className="soft-pill">No results yet</span> : null}
+        </div>
+
+        <div className="day-circle-grid">
+          {weeklyData.days.map((day) => (
+            <button
+              className={`day-circle ${day.tone} ${day.isToday ? 'today' : ''} ${day.isFuture ? 'future' : ''}`}
+              key={day.key}
+              type="button"
+              style={{
+                '--progress': `${day.visualProgress}%`,
+                '--day-color': day.color
+              }}
+              onClick={() => onSelectDay(day)}>
+              <span className="day-progress-fill" aria-hidden="true"></span>
+              <span className="day-circle-content">
+                <strong>{day.dayName}</strong>
+                <small>{day.shortDate}</small>
+                <em>{day.label}</em>
+              </span>
+            </button>
+          ))}
+        </div>
+      </section>
+
+      <div className="weekly-content-grid">
+        <section className="weekly-card unfinished-card">
+          <div className="section-title-row">
+            <div>
+              <p className="eyebrow">Task Follow Up</p>
+              <h2>Unfinished Tasks This Week, you doing well</h2>
+            </div>
+            <ListChecks size={30} />
+          </div>
+
+          {weeklyData.isNewUser ? (
+            <p className="no-results">No results yet</p>
+          ) : weeklyData.unfinishedTasks.length === 0 ? (
+            <p className="no-results">No unfinished tasks yet</p>
+          ) : (
+            <div className="unfinished-list">
+              {weeklyData.unfinishedTasks.map((task) => (
+                <article className="weekly-task-card" key={task.task_id}>
+                  <div>
+                    <strong>{task.title}</strong>
+                    <span>{task.relatedDay}</span>
+                  </div>
+                  <div className="chip-line">
+                    {task.deadline ? <span>Deadline {formatDeadline(task.deadline)}</span> : null}
+                    <span>Priority {task.priority_level || 3}</span>
+                    {task.difficulty_level ? <span>Difficulty {task.difficulty_level}</span> : null}
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
+        </section>
+
+        <section className="weekly-card review-card">
+          <div className="section-title-row">
+            <div>
+              <p className="eyebrow">Weekly Review</p>
+              <h2>Weekly Productivity Review</h2>
+            </div>
+            <Target size={30} />
+          </div>
+
+          {weeklyData.isNewUser || weeklyData.review.score === null ? (
+            <p className="no-results">No results yet</p>
+          ) : (
+            <>
+              <div className="productivity-score">
+                <span>{weeklyData.review.score}%</span>
+                <strong>Overall productivity score</strong>
+              </div>
+              <div className="review-stat-grid">
+                <article>
+                  <strong>{weeklyData.review.completed}</strong>
+                  <span>Completed tasks</span>
+                </article>
+                <article>
+                  <strong>{weeklyData.review.unfinished}</strong>
+                  <span>Unfinished tasks</span>
+                </article>
+                <article>
+                  <strong>{weeklyData.review.bestDay}</strong>
+                  <span>Best productivity day</span>
+                </article>
+              </div>
+              <p className="review-message">{weeklyData.review.message}</p>
+            </>
+          )}
+        </section>
+
+        <section className="weekly-card anger-card">
+          <div className="section-title-row">
+            <div>
+              <p className="eyebrow">Stress Signal</p>
+              <h2>Anger Level This Week</h2>
+            </div>
+            <Flame size={30} />
+          </div>
+
+          {weeklyData.isNewUser || !weeklyData.hasStressData ? (
+            <p className="no-results">No results yet</p>
+          ) : (
+            <div className="anger-list">
+              {weeklyData.days.map((day) => (
+                <div className="anger-row" key={day.key}>
+                  <span>{day.dayName}</span>
+                  <div className="anger-track" aria-label={`${day.dayName} anger level ${day.stressLevel || 0}`}>
+                    <i style={{ width: `${day.stressLevel ? day.stressLevel * 20 : 0}%` }}></i>
+                  </div>
+                  <strong>{stressLabel(day.stressLevel)}</strong>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      </div>
+    </section>
+  );
+}
+
+function DailyDetailPlaceholder({ day, onBack, onOpenPlanner }) {
+  return (
+    <section className="daily-placeholder">
+      <button className="text-action compact" type="button" onClick={onBack}>
+        <ArrowLeft size={16} />
+        Back to weekly dashboard
+      </button>
+      <div className="daily-placeholder-card">
+        <Clock3 size={46} />
+        <p className="eyebrow">Daily Interface</p>
+        <h1>{day ? `${day.dayName}, ${day.shortDate}` : 'Selected Day'}</h1>
+        <p>
+          The detailed daily screen is prepared for navigation. We will build this interface in the next step.
+        </p>
+        <button className="primary-action" type="button" onClick={onOpenPlanner}>
+          Open current daily planner
+        </button>
+      </div>
+    </section>
   );
 }
 
@@ -398,6 +610,182 @@ function getMonthWeek(date = new Date()) {
     weeksInMonth,
     label: `Week ${weekNumber}`
   };
+}
+
+function getCurrentWeekDays(date = new Date()) {
+  const start = new Date(date.getFullYear(), date.getMonth(), date.getDate() - date.getDay());
+  return Array.from({ length: 7 }, (_, index) => {
+    const day = new Date(start);
+    day.setDate(start.getDate() + index);
+    return {
+      date: day,
+      key: toDateKey(day),
+      dayName: new Intl.DateTimeFormat('en', { weekday: 'short' }).format(day),
+      shortDate: `${String(day.getDate()).padStart(2, '0')}/${String(day.getMonth() + 1).padStart(2, '0')}`
+    };
+  });
+}
+
+function buildWeeklyDashboardData({ tasks = [], scheduleItems = [], latestLog, weekDays }) {
+  const todayKey = toDateKey(new Date());
+  const weekKeys = new Set(weekDays.map((day) => day.key));
+  const tasksByDay = new Map(weekDays.map((day) => [day.key, []]));
+  const scheduleDateByTask = new Map();
+
+  scheduleItems.forEach((item) => {
+    if (!item.task_id || !item.start_time) return;
+    const key = toDateKey(new Date(item.start_time));
+    if (weekKeys.has(key) && !scheduleDateByTask.has(item.task_id)) {
+      scheduleDateByTask.set(item.task_id, key);
+    }
+  });
+
+  tasks.forEach((task) => {
+    const key = getTaskWeekDateKey(task, scheduleDateByTask, weekKeys);
+    if (key) {
+      tasksByDay.get(key)?.push(task);
+    }
+  });
+
+  const stressByDay = new Map();
+  if (latestLog?.log_date && weekKeys.has(datePart(latestLog.log_date))) {
+    stressByDay.set(datePart(latestLog.log_date), Number.parseInt(latestLog.stress_level, 10) || 0);
+  }
+
+  const isNewUser = tasks.length === 0 && scheduleItems.length === 0 && !latestLog;
+  const days = weekDays.map((day) => {
+    const dayTasks = tasksByDay.get(day.key) || [];
+    const totalTasks = dayTasks.length;
+    const completedTasks = dayTasks.filter(isTaskCompleted).length;
+    const rawProgress = totalTasks ? Math.round((completedTasks / totalTasks) * 100) : 0;
+    const isFuture = day.key > todayKey;
+    const progressTone = getProgressTone(rawProgress, totalTasks, isFuture, isNewUser);
+
+    return {
+      ...day,
+      isToday: day.key === todayKey,
+      isFuture,
+      totalTasks,
+      completedTasks,
+      progress: rawProgress,
+      visualProgress: progressTone.visualProgress,
+      color: progressTone.color,
+      tone: progressTone.tone,
+      label: getDayCircleLabel({ isNewUser, isFuture, totalTasks, rawProgress }),
+      stressLevel: stressByDay.get(day.key) || 0
+    };
+  });
+
+  const weeklyTasks = [...tasksByDay.entries()].flatMap(([dayKey, dayTasks]) => {
+    const day = days.find((item) => item.key === dayKey);
+    return dayTasks.map((task) => ({ task, day }));
+  });
+  const completed = weeklyTasks.filter(({ task }) => isTaskCompleted(task)).length;
+  const unfinished = weeklyTasks.length - completed;
+  const score = weeklyTasks.length ? Math.round((completed / weeklyTasks.length) * 100) : null;
+  const bestDay = days
+    .filter((day) => day.totalTasks > 0)
+    .sort((a, b) => b.progress - a.progress)[0];
+
+  return {
+    isNewUser,
+    hasStressData: days.some((day) => day.stressLevel > 0),
+    rangeLabel: `${weekDays[0].shortDate} - ${weekDays[6].shortDate}`,
+    days,
+    unfinishedTasks: weeklyTasks
+      .filter(({ task }) => !isTaskCompleted(task))
+      .map(({ task, day }) => ({
+        ...task,
+        relatedDay: `${day.dayName} ${day.shortDate}`
+      })),
+    review: {
+      score,
+      completed,
+      unfinished,
+      bestDay: bestDay ? bestDay.dayName : 'No data',
+      message: score === null
+        ? 'No results yet'
+        : score >= 70
+          ? 'Good progress this week'
+          : 'Try to complete more tasks tomorrow'
+    }
+  };
+}
+
+function getTaskWeekDateKey(task, scheduleDateByTask, weekKeys) {
+  if (scheduleDateByTask.has(task.task_id)) {
+    return scheduleDateByTask.get(task.task_id);
+  }
+
+  const candidates = [
+    task.fixed_date,
+    datePart(task.deadline)
+  ].filter(Boolean);
+
+  return candidates.find((key) => weekKeys.has(key)) || null;
+}
+
+function getProgressTone(progress, totalTasks, isFuture, isNewUser) {
+  if (isNewUser || totalTasks === 0 || isFuture) {
+    return { tone: 'neutral', color: '#d7e2f5', visualProgress: 0 };
+  }
+  if (progress === 100) {
+    return { tone: 'green', color: '#2ca86b', visualProgress: 100 };
+  }
+  if (progress < 50) {
+    return { tone: 'red', color: '#d95572', visualProgress: Math.max(progress, 12) };
+  }
+  if (progress <= 70) {
+    return { tone: 'orange', color: '#f3ad35', visualProgress: progress };
+  }
+  return { tone: 'teal', color: '#11a7a4', visualProgress: progress };
+}
+
+function getDayCircleLabel({ isNewUser, isFuture, totalTasks, rawProgress }) {
+  if (isNewUser) return 'No results';
+  if (isFuture && totalTasks > 0) return `${totalTasks} planned`;
+  if (totalTasks === 0) return 'No tasks';
+  return `${rawProgress}% done`;
+}
+
+function isTaskCompleted(task) {
+  return Boolean(task.is_completed) || task.status === 'completed';
+}
+
+function toDateKey(date) {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return '';
+  return [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, '0'),
+    String(date.getDate()).padStart(2, '0')
+  ].join('-');
+}
+
+function datePart(value) {
+  if (!value) return null;
+  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}/.test(value)) {
+    return value.slice(0, 10);
+  }
+  return toDateKey(new Date(value));
+}
+
+function formatDeadline(value) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat('en', {
+    day: '2-digit',
+    month: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit'
+  }).format(date);
+}
+
+function stressLabel(level) {
+  if (!level) return 'none';
+  if (level <= 2) return 'low';
+  if (level === 3) return 'medium';
+  return 'high';
 }
 
 function ProfileImageField({ value, onChange }) {
