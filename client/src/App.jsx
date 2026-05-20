@@ -2,14 +2,19 @@ import { useEffect, useState } from 'react';
 import {
   ArrowLeft,
   CalendarClock,
+  CheckCircle2,
   Clock3,
   Database,
   Flame,
   ListChecks,
+  Pencil,
+  PlayCircle,
   RefreshCw,
   ShieldCheck,
   SlidersHorizontal,
-  Target
+  Sparkles,
+  Target,
+  Trash2
 } from 'lucide-react';
 import { plannerApi } from './api/plannerApi.js';
 import { DailyCheckIn } from './components/DailyCheckIn.jsx';
@@ -33,6 +38,7 @@ export function App() {
   const [profileMode, setProfileMode] = useState(null);
   const [currentPage, setCurrentPage] = useState('weekly');
   const [selectedDay, setSelectedDay] = useState(null);
+  const [selectedDayTasks, setSelectedDayTasks] = useState({});
   const [bootstrap, setBootstrap] = useState(null);
   const [tasks, setTasks] = useState([]);
   const [schedule, setSchedule] = useState(null);
@@ -93,15 +99,15 @@ export function App() {
     return result;
   }
 
-  async function handleGenerateSelectedDay(day, checkInDraft, taskDraft) {
+  async function handleGenerateSelectedDay(day, checkInDraft, addedTasks) {
     const dailyLogResult = await handleDailyLogSubmit({
       ...getDefaultCheckInDraft(),
       ...(checkInDraft || {}),
       log_date: day.key
     });
 
-    if (taskDraft?.title?.trim()) {
-      await handleTaskSubmit(normalizeSelectedDayTask(taskDraft, day.key));
+    for (const task of addedTasks) {
+      await handleTaskSubmit(normalizeSelectedDayTask(task, day.key));
     }
 
     const result = await plannerApi.generateSchedule({
@@ -112,6 +118,7 @@ export function App() {
     setScheduleItems(result.items || []);
     await refreshTasks();
     setMessage('Daily schedule generated for the selected day.');
+    setSelectedDayTasks((current) => ({ ...current, [day.key]: [] }));
     setCurrentPage('generated');
     return result;
   }
@@ -151,6 +158,7 @@ export function App() {
     setProfileMode(null);
     setCurrentPage('weekly');
     setSelectedDay(null);
+    setSelectedDayTasks({});
     setBootstrap(null);
     setTasks([]);
     setSchedule(null);
@@ -193,7 +201,7 @@ export function App() {
             onOpenPlanner={() => setCurrentPage('planner')}
             onSelectDay={(day) => {
               setSelectedDay(day);
-              setCurrentPage('day');
+              setCurrentPage(hasGeneratedPlanForDay(day.key, schedule, scheduleItems) ? 'generated' : 'day');
             }}
           />
         ) : currentPage === 'day' ? (
@@ -201,15 +209,20 @@ export function App() {
             day={selectedDay}
             onBack={() => setCurrentPage('weekly')}
             onDailyLogSubmit={handleDailyLogSubmit}
-            onTaskSubmit={handleTaskSubmit}
             onGenerate={handleGenerateSelectedDay}
             latestLog={bootstrap?.latest_daily_log}
+            addedTasks={selectedDayTasks[selectedDay?.key] || []}
+            onAddedTasksChange={(dayKey, nextTasks) => {
+              setSelectedDayTasks((current) => ({ ...current, [dayKey]: nextTasks }));
+            }}
           />
         ) : currentPage === 'generated' ? (
-          <GeneratedSchedulePlaceholder
+          <DailyDetailsPage
             day={selectedDay}
             schedule={schedule}
             items={scheduleItems}
+            tasks={tasks}
+            latestLog={bootstrap?.latest_daily_log}
             onBack={() => setCurrentPage('day')}
             onWeekly={() => setCurrentPage('weekly')}
           />
@@ -454,20 +467,58 @@ function WeeklyDashboard({ tasks, scheduleItems, latestLog, isLoading, onOpenPla
   );
 }
 
-function SelectedDayInputPage({ day, onBack, onDailyLogSubmit, onTaskSubmit, onGenerate, latestLog }) {
+function SelectedDayInputPage({
+  day,
+  onBack,
+  onDailyLogSubmit,
+  onGenerate,
+  latestLog,
+  addedTasks,
+  onAddedTasksChange
+}) {
   const [checkInDraft, setCheckInDraft] = useState(getDefaultCheckInDraft());
   const [taskDraft, setTaskDraft] = useState(null);
+  const [editingTaskId, setEditingTaskId] = useState(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const dayKey = day?.key || toDateKey(new Date());
   const dayTitle = formatSelectedDayHeading(day);
-  const validation = validateSelectedDayInput(checkInDraft, taskDraft);
+  const editingTask = addedTasks.find((task) => task.local_id === editingTaskId) || null;
+  const validation = validateSelectedDayInput(checkInDraft, addedTasks);
   const canGenerate = validation.isValid && !isGenerating;
+
+  async function handleTaskPreviewSubmit(task) {
+    const preparedTask = {
+      ...task,
+      local_id: editingTaskId || task.local_id || createLocalTaskId(),
+      task_date: dayKey
+    };
+    const nextTasks = editingTaskId
+      ? addedTasks.map((item) => (item.local_id === editingTaskId ? preparedTask : item))
+      : [...addedTasks, preparedTask];
+
+    onAddedTasksChange(dayKey, nextTasks);
+    setEditingTaskId(null);
+  }
+
+  function handleEditTask(task) {
+    setEditingTaskId(task.local_id);
+  }
+
+  function handleDeleteTask(taskId) {
+    const confirmed = window.confirm('Delete this task from Added Tasks?');
+    if (!confirmed) return;
+
+    onAddedTasksChange(dayKey, addedTasks.filter((task) => task.local_id !== taskId));
+    if (editingTaskId === taskId) {
+      setEditingTaskId(null);
+    }
+  }
 
   async function handleGenerateClick() {
     if (!validation.isValid) return;
     setIsGenerating(true);
     try {
-      await onGenerate({ ...(day || {}), key: dayKey }, checkInDraft, taskDraft);
+      await onGenerate({ ...(day || {}), key: dayKey }, checkInDraft, addedTasks);
     } finally {
       setIsGenerating(false);
     }
@@ -494,11 +545,25 @@ function SelectedDayInputPage({ day, onBack, onDailyLogSubmit, onTaskSubmit, onG
           selectedDate={dayKey}
           onDraftChange={setCheckInDraft}
         />
-        <TaskForm
-          onSubmit={onTaskSubmit}
-          selectedDate={dayKey}
-          onDraftChange={setTaskDraft}
-        />
+        <div className="selected-day-task-column">
+          <TaskForm
+            onSubmit={handleTaskPreviewSubmit}
+            selectedDate={dayKey}
+            onDraftChange={setTaskDraft}
+            initialValue={editingTask}
+            submitLabel={editingTask ? 'Update Task' : 'Add Task'}
+            savingLabel={editingTask ? 'Updating...' : 'Adding...'}
+            requireCompleteTask
+            onCancelEdit={() => setEditingTaskId(null)}
+            afterForm={
+              <AddedTasksPreview
+                tasks={addedTasks}
+                onEdit={handleEditTask}
+                onDelete={handleDeleteTask}
+              />
+            }
+          />
+        </div>
       </div>
 
       <section className="generate-day-card">
@@ -517,31 +582,176 @@ function SelectedDayInputPage({ day, onBack, onDailyLogSubmit, onTaskSubmit, onG
   );
 }
 
-function GeneratedSchedulePlaceholder({ day, schedule, items, onBack, onWeekly }) {
+function DailyDetailsPage({ day, schedule, items = [], tasks = [], latestLog, onBack, onWeekly }) {
+  const details = buildDailyDetailsData({ day, schedule, items, tasks, latestLog });
+
   return (
-    <section className="daily-placeholder">
-      <button className="text-action compact" type="button" onClick={onBack}>
-        <ArrowLeft size={16} />
-        Back to selected day input
-      </button>
-      <div className="daily-placeholder-card">
-        <Clock3 size={46} />
-        <p className="eyebrow">Generated Schedule</p>
-        <h1>{formatSelectedDayHeading(day)}</h1>
-        <p>
-          The generation result page is ready as a route placeholder. We will design the full schedule result view later.
-        </p>
-        {schedule ? (
-          <div className="placeholder-summary">
-            <span>{items.length} schedule items generated</span>
-            <strong>{schedule.schedule_note}</strong>
-          </div>
-        ) : null}
-        <button className="primary-action" type="button" onClick={onWeekly}>
-          Back to Weekly Dashboard
+    <section className="daily-details-page">
+      <div className="daily-details-hero">
+        <div>
+          <p className="eyebrow">Daily Details</p>
+          <h1>{formatSelectedDayHeading(day)}</h1>
+          <span>View and manage the generated plan for this day.</span>
+        </div>
+        <button className="text-action compact" type="button" onClick={onWeekly}>
+          <ArrowLeft size={16} />
+          Back to weekly dashboard
         </button>
       </div>
+
+      <div className="daily-details-grid">
+        <section className="daily-details-card waiting-card">
+          <DailyDetailsCardHeader icon={ListChecks} eyebrow="Planned" title="Waiting Tasks" />
+          {details.waitingTasks.length === 0 ? (
+            <p className="no-results">No waiting tasks yet</p>
+          ) : (
+            <div className="detail-task-list">
+              {details.waitingTasks.map((item) => (
+                <DailyDetailTaskCard item={item} key={item.schedule_item_id} />
+              ))}
+            </div>
+          )}
+        </section>
+
+        <section className="daily-details-card progress-card">
+          <DailyDetailsCardHeader icon={PlayCircle} eyebrow="Current" title="Task In Progress" />
+          {details.currentTask ? (
+            <DailyDetailTaskCard item={details.currentTask} showProgress />
+          ) : (
+            <p className="no-results">No task in progress</p>
+          )}
+        </section>
+
+        <section className="daily-details-card completed-card">
+          <DailyDetailsCardHeader icon={CheckCircle2} eyebrow="Done" title="Completed Tasks" />
+          {details.completedTasks.length === 0 ? (
+            <p className="no-results">No completed tasks yet</p>
+          ) : (
+            <div className="detail-task-list">
+              {details.completedTasks.map((item) => (
+                <DailyDetailTaskCard item={item} key={item.schedule_item_id} completed />
+              ))}
+            </div>
+          )}
+        </section>
+
+        <section className="daily-details-card timeline-card">
+          <DailyDetailsCardHeader icon={Clock3} eyebrow="Overview" title="Daily Timeline" />
+          {details.timeline.length === 0 ? (
+            <p className="no-results">No timeline yet</p>
+          ) : (
+            <div className="timeline-list">
+              {details.timeline.map((item) => (
+                <article className="timeline-row" key={item.schedule_item_id}>
+                  <time>{formatTimeRange(item.start_time, item.end_time)}</time>
+                  <div>
+                    <strong>{item.title}</strong>
+                    <span>{item.reason || 'Planned schedule block'}</span>
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
+        </section>
+
+        <section className="daily-details-card advice-card">
+          <DailyDetailsCardHeader icon={Sparkles} eyebrow="Smart Notes" title="AI Notes & Advice" />
+          {details.advice.length === 0 ? (
+            <p className="no-results">No advice yet</p>
+          ) : (
+            <div className="advice-list">
+              {details.advice.map((note) => (
+                <article key={note}>{note}</article>
+              ))}
+            </div>
+          )}
+        </section>
+      </div>
+
+      <button className="secondary-action details-back-action" type="button" onClick={onBack}>
+        <ArrowLeft size={18} />
+        Back to selected day input
+      </button>
     </section>
+  );
+}
+
+function AddedTasksPreview({ tasks, onEdit, onDelete }) {
+  return (
+    <section className="added-tasks-panel">
+      <div className="panel-head">
+        <div>
+          <p className="eyebrow">Preview</p>
+          <h2>Added Tasks</h2>
+        </div>
+        <span className="soft-pill">{tasks.length} added</span>
+      </div>
+
+      {tasks.length === 0 ? (
+        <p className="empty-state">Please add at least one task before generating the schedule.</p>
+      ) : (
+        <div className="added-task-list">
+          {tasks.map((task) => (
+            <article className="added-task-card" key={task.local_id}>
+              <div>
+                <strong>{task.title}</strong>
+                <span>{task.is_fixed_time ? 'Fixed-time task' : 'Flexible task'}</span>
+              </div>
+              <div className="chip-line">
+                <span>{task.estimated_duration_minutes}m</span>
+                <span>Priority {task.priority_level}</span>
+                <span>Difficulty {task.difficulty_level}</span>
+                {task.is_fixed_time ? <span>{task.fixed_start_time} - {task.fixed_end_time}</span> : null}
+              </div>
+              <div className="added-task-actions">
+                <button type="button" onClick={() => onEdit(task)}>
+                  <Pencil size={15} />
+                  Edit
+                </button>
+                <button className="delete" type="button" onClick={() => onDelete(task.local_id)}>
+                  <Trash2 size={15} />
+                  Delete
+                </button>
+              </div>
+            </article>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function DailyDetailsCardHeader({ icon: Icon, eyebrow, title }) {
+  return (
+    <div className="daily-details-card-head">
+      <div>
+        <p className="eyebrow">{eyebrow}</p>
+        <h2>{title}</h2>
+      </div>
+      <Icon size={26} />
+    </div>
+  );
+}
+
+function DailyDetailTaskCard({ item, showProgress = false, completed = false }) {
+  return (
+    <article className={`detail-task-card ${completed ? 'completed' : ''}`}>
+      <div>
+        <strong>{item.title}</strong>
+        <span>{formatTimeRange(item.start_time, item.end_time)}</span>
+      </div>
+      <div className="chip-line">
+        <span>{item.task_kind || 'flexible'}</span>
+        <span>Difficulty {item.difficulty_level || item.task?.difficulty_level || 3}</span>
+        <span>Priority {item.task?.priority_level || 3}</span>
+      </div>
+      {showProgress ? (
+        <div className="task-progress-line">
+          <i style={{ width: `${item.progress || 0}%` }}></i>
+        </div>
+      ) : null}
+      {completed ? <em>Completed</em> : null}
+    </article>
   );
 }
 
@@ -919,6 +1129,7 @@ function normalizeSelectedDayTask(taskDraft, selectedDate) {
     ...taskDraft,
     task_date: selectedDate
   };
+  delete payload.local_id;
 
   if (payload.is_fixed_time) {
     payload.fixed_date = selectedDate;
@@ -927,7 +1138,82 @@ function normalizeSelectedDayTask(taskDraft, selectedDate) {
   return payload;
 }
 
-function validateSelectedDayInput(checkInDraft, taskDraft) {
+function buildDailyDetailsData({ day, schedule, items, tasks, latestLog }) {
+  const dayKey = day?.key || datePart(schedule?.schedule_date);
+  const taskById = new Map(tasks.map((task) => [task.task_id, task]));
+  const dayItems = items
+    .filter((item) => !dayKey || datePart(item.start_time) === dayKey || datePart(schedule?.schedule_date) === dayKey)
+    .map((item) => ({
+      ...item,
+      task: taskById.get(item.task_id)
+    }))
+    .sort((a, b) => new Date(a.start_time) - new Date(b.start_time));
+
+  const currentTask = dayItems.find((item) => ['active', 'in_progress'].includes(item.status)) || null;
+  const completedTasks = dayItems.filter((item) => item.status === 'completed' || item.task?.is_completed);
+  const waitingTasks = dayItems.filter((item) => item !== currentTask && !completedTasks.includes(item));
+  const advice = buildDailyAdvice({ waitingTasks, completedTasks, currentTask, latestLog, dayItems });
+
+  return {
+    waitingTasks,
+    currentTask,
+    completedTasks,
+    timeline: dayItems,
+    advice
+  };
+}
+
+function buildDailyAdvice({ waitingTasks, completedTasks, currentTask, latestLog, dayItems }) {
+  if (dayItems.length === 0) return [];
+
+  const notes = [];
+  const energy = Number.parseInt(latestLog?.predicted_energy_level || latestLog?.energy_level, 10);
+  const stress = Number.parseInt(latestLog?.stress_level, 10);
+
+  if (completedTasks.length > 0 && completedTasks.length >= waitingTasks.length) {
+    notes.push('You are progressing well today. Keep your focus window for difficult tasks.');
+  }
+
+  if (!Number.isNaN(energy) && energy <= 2) {
+    notes.push('Your energy seems low. Try moving heavy tasks later or use shorter focus blocks.');
+  }
+
+  if (!Number.isNaN(stress) && stress >= 4) {
+    notes.push('Stress is high today. Add short breaks between difficult tasks.');
+  }
+
+  if (!currentTask && waitingTasks.length > 0) {
+    notes.push('Choose the next waiting task when you are ready to continue.');
+  }
+
+  if (notes.length === 0) {
+    notes.push('No advice yet');
+  }
+
+  return notes;
+}
+
+function hasGeneratedPlanForDay(dayKey, schedule, items) {
+  if (!dayKey || !schedule || items.length === 0) return false;
+  return datePart(schedule.schedule_date) === dayKey || items.some((item) => datePart(item.start_time) === dayKey);
+}
+
+function formatTimeRange(start, end) {
+  return `${formatTime(start)} - ${formatTime(end)}`;
+}
+
+function formatTime(value) {
+  if (!value) return '--:--';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value).slice(0, 5);
+  return new Intl.DateTimeFormat('en', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false
+  }).format(date);
+}
+
+function validateSelectedDayInput(checkInDraft, addedTasks) {
   const sleepHours = Number.parseFloat(checkInDraft?.sleep_hours);
   if (Number.isNaN(sleepHours) || sleepHours < 0) {
     return {
@@ -936,54 +1222,21 @@ function validateSelectedDayInput(checkInDraft, taskDraft) {
     };
   }
 
-  if (!taskDraft?.title?.trim()) {
+  if (!addedTasks || addedTasks.length === 0) {
     return {
       isValid: false,
-      message: 'Complete the Tasks section: task title is required.'
+      message: 'Please add at least one task before generating the schedule.'
     };
-  }
-
-  if (!taskDraft.description?.trim()) {
-    return {
-      isValid: false,
-      message: 'Complete the Tasks section: task description is required.'
-    };
-  }
-
-  if (!taskDraft.deadline) {
-    return {
-      isValid: false,
-      message: 'Complete the Tasks section: deadline is required.'
-    };
-  }
-
-  if (!taskDraft.difficulty_level) {
-    return {
-      isValid: false,
-      message: 'Complete the Tasks section: difficulty level is required.'
-    };
-  }
-
-  if (taskDraft.is_fixed_time) {
-    if (!taskDraft.fixed_start_time || !taskDraft.fixed_end_time) {
-      return {
-        isValid: false,
-        message: 'Complete the fixed-time task details: start time and end time are required.'
-      };
-    }
-
-    if (taskDraft.fixed_start_time >= taskDraft.fixed_end_time) {
-      return {
-        isValid: false,
-        message: 'Fixed-time task end time must be after the start time.'
-      };
-    }
   }
 
   return {
     isValid: true,
     message: ''
   };
+}
+
+function createLocalTaskId() {
+  return `local_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
 function formatSelectedDayHeading(day) {

@@ -14,30 +14,56 @@ const initialState = {
   fixed_end_time: ''
 };
 
-export function TaskForm({ onSubmit, selectedDate, onDraftChange }) {
+export function TaskForm({
+  onSubmit,
+  selectedDate,
+  onDraftChange,
+  initialValue,
+  submitLabel = 'Add Task',
+  savingLabel = 'Adding...',
+  requireCompleteTask = false,
+  onCancelEdit,
+  afterForm
+}) {
   const [form, setForm] = useState(() => buildInitialState(selectedDate));
   const [isSaving, setIsSaving] = useState(false);
+  const [validationMessage, setValidationMessage] = useState('');
 
   useEffect(() => {
-    const next = buildInitialState(selectedDate);
+    const next = {
+      ...buildInitialState(selectedDate),
+      ...(initialValue || {})
+    };
     setForm(next);
     onDraftChange?.(next);
-  }, [selectedDate]);
+    setValidationMessage('');
+  }, [selectedDate, initialValue]);
 
   function updateForm(updates) {
     const next = { ...form, ...updates };
     setForm(next);
     onDraftChange?.(next);
+    if (validationMessage) {
+      setValidationMessage('');
+    }
   }
 
   async function handleSubmit(event) {
     event.preventDefault();
+    const payload = normalizeTaskPayload(form, selectedDate);
+    const validation = requireCompleteTask ? validateTaskPayload(payload, selectedDate) : { isValid: true, message: '' };
+    if (!validation.isValid) {
+      setValidationMessage(validation.message);
+      return;
+    }
+
     setIsSaving(true);
     try {
-      await onSubmit(normalizeTaskPayload(form, selectedDate));
+      await onSubmit(payload);
       const next = buildInitialState(selectedDate);
       setForm(next);
       onDraftChange?.(next);
+      setValidationMessage('');
     } finally {
       setIsSaving(false);
     }
@@ -48,15 +74,17 @@ export function TaskForm({ onSubmit, selectedDate, onDraftChange }) {
       <div className="panel-head">
         <div>
           <p className="eyebrow">Tasks</p>
-          <h2>Add task</h2>
+          <h2>{initialValue ? 'Edit task' : 'Add task'}</h2>
         </div>
         <span className="soft-pill">{form.is_fixed_time ? 'Fixed' : 'Flexible'}</span>
       </div>
 
       <form className="form-stack" onSubmit={handleSubmit}>
+        {validationMessage ? <p className="form-validation">{validationMessage}</p> : null}
+
         <label>
           Title
-          <input value={form.title} onChange={(event) => updateForm({ title: event.target.value })} required />
+          <input value={form.title} onChange={(event) => updateForm({ title: event.target.value })} required={!requireCompleteTask} />
         </label>
         <label>
           Description
@@ -148,10 +176,19 @@ export function TaskForm({ onSubmit, selectedDate, onDraftChange }) {
           </div>
         ) : null}
 
-        <button className="primary-action" type="submit" disabled={isSaving}>
-          {isSaving ? 'Adding...' : 'Add Task'}
-        </button>
+        <div className="button-row">
+          <button type="submit" disabled={isSaving}>
+            {isSaving ? savingLabel : submitLabel}
+          </button>
+          {initialValue && onCancelEdit ? (
+            <button className="secondary" type="button" onClick={onCancelEdit}>
+              Cancel Edit
+            </button>
+          ) : null}
+        </div>
       </form>
+
+      {afterForm ? <div className="task-form-extra">{afterForm}</div> : null}
     </section>
   );
 }
@@ -174,6 +211,43 @@ function normalizeTaskPayload(form, selectedDate) {
   }
 
   return payload;
+}
+
+function validateTaskPayload(payload, selectedDate) {
+  if (!payload.title?.trim()) {
+    return { isValid: false, message: 'Task title is required.' };
+  }
+
+  const duration = Number.parseInt(payload.estimated_duration_minutes, 10);
+  if (Number.isNaN(duration) || duration < 15) {
+    return { isValid: false, message: 'Estimated duration is required and must be at least 15 minutes.' };
+  }
+
+  if (!payload.priority_level) {
+    return { isValid: false, message: 'Priority is required.' };
+  }
+
+  if (!payload.difficulty_level) {
+    return { isValid: false, message: 'Difficulty is required.' };
+  }
+
+  if (typeof payload.is_fixed_time !== 'boolean') {
+    return { isValid: false, message: 'Task type is required.' };
+  }
+
+  if (payload.is_fixed_time) {
+    if (!selectedDate && !payload.fixed_date) {
+      return { isValid: false, message: 'Fixed date is required for fixed-time tasks.' };
+    }
+    if (!payload.fixed_start_time || !payload.fixed_end_time) {
+      return { isValid: false, message: 'Start time and end time are required for fixed-time tasks.' };
+    }
+    if (payload.fixed_start_time >= payload.fixed_end_time) {
+      return { isValid: false, message: 'Fixed-time task end time must be after the start time.' };
+    }
+  }
+
+  return { isValid: true, message: '' };
 }
 
 function formatSelectedDate(value) {

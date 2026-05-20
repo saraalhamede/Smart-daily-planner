@@ -32,11 +32,6 @@ export function DailyCheckIn({ onSubmit, latestLog, selectedDate, onDraftChange 
     try {
       const payload = selectedDate ? { ...form, log_date: selectedDate } : form;
       const result = await onSubmit(payload);
-      setForm((current) => {
-        const next = { ...current, mood_text_original: '' };
-        onDraftChange?.(next);
-        return next;
-      });
       return result;
     } finally {
       setIsSaving(false);

@@ -538,6 +538,17 @@ git switch -c first-version
 - Added `task_date` support to the backend task model and database schema.
 - Swapped the selected-day header layout so the selected day details appear on the left and the back button appears on the right.
 - Disabled schedule generation until the required Daily Check-In and Task fields are completed.
+- Kept the Daily Check-In mood note visible after saving so the user can still review it before generating the schedule.
+- Created the Daily Details Interface layout after schedule generation.
+- Added Daily Details containers for Waiting Tasks, Task In Progress, Completed Tasks, Daily Timeline, and AI Notes & Advice.
+- Clicking a weekly day that already has a generated plan now opens the Daily Details page instead of the selected-day input page.
+- The Daily Details page is view/manage only and does not include Daily Check-In or Add Task forms.
+- Added an `Added Tasks` preview container inside the selected-day Tasks section.
+- `Add Task` now stores tasks locally in the selected-day preview list before generation instead of saving immediately and disappearing.
+- Added edit and delete actions for selected-day preview tasks.
+- `Generate Daily Schedule` now uses the tasks from the `Added Tasks` preview list and is disabled until at least one task is added.
+- Task form validation now keeps typed data visible when required fields are missing.
+- Moved the `Added Tasks` preview inside the Tasks container so added tasks are visible immediately under the form.
 
 ### 2026-05-19
 - Added registration-first flow before opening the main planner.
