@@ -460,8 +460,11 @@ function SelectedDayInputPage({ day, onBack, onDailyLogSubmit, onTaskSubmit, onG
   const [isGenerating, setIsGenerating] = useState(false);
   const dayKey = day?.key || toDateKey(new Date());
   const dayTitle = formatSelectedDayHeading(day);
+  const validation = validateSelectedDayInput(checkInDraft, taskDraft);
+  const canGenerate = validation.isValid && !isGenerating;
 
   async function handleGenerateClick() {
+    if (!validation.isValid) return;
     setIsGenerating(true);
     try {
       await onGenerate({ ...(day || {}), key: dayKey }, checkInDraft, taskDraft);
@@ -473,15 +476,15 @@ function SelectedDayInputPage({ day, onBack, onDailyLogSubmit, onTaskSubmit, onG
   return (
     <section className="selected-day-page">
       <div className="selected-day-hero">
-        <button className="text-action compact" type="button" onClick={onBack}>
-          <ArrowLeft size={16} />
-          Back to weekly dashboard
-        </button>
         <div>
           <p className="eyebrow">Selected Day</p>
           <h1>{dayTitle}</h1>
           <span>Fill the daily check-in and add the tasks for this specific day.</span>
         </div>
+        <button className="text-action compact" type="button" onClick={onBack}>
+          <ArrowLeft size={16} />
+          Back to weekly dashboard
+        </button>
       </div>
 
       <div className="selected-day-grid">
@@ -503,8 +506,9 @@ function SelectedDayInputPage({ day, onBack, onDailyLogSubmit, onTaskSubmit, onG
           <p className="eyebrow">Next Step</p>
           <h2>Ready to generate this day?</h2>
           <span>The system will save the selected-day input, run the scheduler, and open the result page.</span>
+          {!validation.isValid ? <em className="generate-requirements">{validation.message}</em> : null}
         </div>
-        <button className="primary-action" type="button" onClick={handleGenerateClick} disabled={isGenerating}>
+        <button className="primary-action" type="button" onClick={handleGenerateClick} disabled={!canGenerate}>
           <CalendarClock size={18} />
           {isGenerating ? 'Generating...' : 'Generate Daily Schedule'}
         </button>
@@ -921,6 +925,65 @@ function normalizeSelectedDayTask(taskDraft, selectedDate) {
   }
 
   return payload;
+}
+
+function validateSelectedDayInput(checkInDraft, taskDraft) {
+  const sleepHours = Number.parseFloat(checkInDraft?.sleep_hours);
+  if (Number.isNaN(sleepHours) || sleepHours < 0) {
+    return {
+      isValid: false,
+      message: 'Complete the Daily Check-In: sleep hours is required.'
+    };
+  }
+
+  if (!taskDraft?.title?.trim()) {
+    return {
+      isValid: false,
+      message: 'Complete the Tasks section: task title is required.'
+    };
+  }
+
+  if (!taskDraft.description?.trim()) {
+    return {
+      isValid: false,
+      message: 'Complete the Tasks section: task description is required.'
+    };
+  }
+
+  if (!taskDraft.deadline) {
+    return {
+      isValid: false,
+      message: 'Complete the Tasks section: deadline is required.'
+    };
+  }
+
+  if (!taskDraft.difficulty_level) {
+    return {
+      isValid: false,
+      message: 'Complete the Tasks section: difficulty level is required.'
+    };
+  }
+
+  if (taskDraft.is_fixed_time) {
+    if (!taskDraft.fixed_start_time || !taskDraft.fixed_end_time) {
+      return {
+        isValid: false,
+        message: 'Complete the fixed-time task details: start time and end time are required.'
+      };
+    }
+
+    if (taskDraft.fixed_start_time >= taskDraft.fixed_end_time) {
+      return {
+        isValid: false,
+        message: 'Fixed-time task end time must be after the start time.'
+      };
+    }
+  }
+
+  return {
+    isValid: true,
+    message: ''
+  };
 }
 
 function formatSelectedDayHeading(day) {

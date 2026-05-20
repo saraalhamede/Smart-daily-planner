@@ -1578,7 +1578,7 @@ input:disabled {
   font-size: clamp(2.1rem, 4vw, 4.5rem);
   line-height: 0.94;
   letter-spacing: -0.075em;
-  text-align: right;
+  text-align: left;
 }
 
 .selected-day-hero span {
@@ -1586,7 +1586,7 @@ input:disabled {
   margin-top: 8px;
   color: var(--muted);
   font-weight: 850;
-  text-align: right;
+  text-align: left;
 }
 
 .selected-day-grid {
@@ -1637,6 +1637,18 @@ input:disabled {
   margin-top: 5px;
   color: var(--muted);
   font-weight: 850;
+}
+
+.generate-requirements {
+  display: inline-flex;
+  margin-top: 10px;
+  border-radius: 999px;
+  padding: 8px 12px;
+  color: #9f2f46;
+  background: #fff0f4;
+  font-size: 0.88rem;
+  font-style: normal;
+  font-weight: 1000;
 }
 
 .placeholder-summary {

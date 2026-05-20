@@ -536,6 +536,8 @@ git switch -c first-version
 - Fixed-time tasks on the selected day automatically use that selected date and only ask for start and end time.
 - Added a `Generate Daily Schedule` button that saves selected-day input, runs scheduling, and navigates to a generated-result placeholder.
 - Added `task_date` support to the backend task model and database schema.
+- Swapped the selected-day header layout so the selected day details appear on the left and the back button appears on the right.
+- Disabled schedule generation until the required Daily Check-In and Task fields are completed.
 
 ### 2026-05-19
 - Added registration-first flow before opening the main planner.
