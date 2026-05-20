@@ -1824,6 +1824,18 @@ input:disabled {
   background: rgba(255, 255, 255, 0.82);
 }
 
+.daily-notice {
+  margin: 0;
+  border: 1px solid #bde7e4;
+  border-left: 6px solid var(--teal);
+  border-radius: 18px;
+  padding: 13px 16px;
+  color: var(--brand-dark);
+  background: rgba(231, 251, 248, 0.9);
+  box-shadow: var(--soft-shadow);
+  font-weight: 900;
+}
+
 .daily-details-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1929,6 +1941,47 @@ input:disabled {
   font-weight: 1000;
 }
 
+.detail-task-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.detail-task-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: 0;
+  border-radius: 999px;
+  padding: 9px 12px;
+  color: #fff;
+  background: linear-gradient(135deg, var(--brand), var(--teal));
+  font-size: 0.86rem;
+  font-weight: 1000;
+}
+
+.detail-task-actions button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 20px rgba(31, 57, 112, 0.12);
+}
+
+.detail-task-actions .secondary {
+  color: var(--brand-dark);
+  background: #e8f0ff;
+}
+
+.daily-task-edit-form {
+  display: grid;
+  gap: 12px;
+}
+
+.daily-task-edit-form input,
+.daily-task-edit-form select {
+  border-radius: 14px;
+  padding: 10px 12px;
+}
+
 .task-progress-line {
   height: 10px;
   border-radius: 999px;
@@ -1962,6 +2015,28 @@ input:disabled {
   font-size: 0.9rem;
   font-weight: 1000;
   text-align: center;
+}
+
+.timeline-row em {
+  display: inline-flex;
+  margin-top: 8px;
+  border-radius: 999px;
+  padding: 5px 9px;
+  color: var(--teal);
+  background: #e7fbf8;
+  font-size: 0.78rem;
+  font-style: normal;
+  font-weight: 1000;
+}
+
+.timeline-row.in_progress {
+  border-color: rgba(17, 167, 164, 0.42);
+  background: #e7fbf8;
+}
+
+.timeline-row.completed {
+  border-color: rgba(44, 168, 107, 0.34);
+  opacity: 0.82;
 }
 
 .advice-list article {

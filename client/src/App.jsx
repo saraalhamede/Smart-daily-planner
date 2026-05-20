@@ -578,7 +578,103 @@ function SelectedDayInputPage({
 }
 
 function DailyDetailsPage({ day, schedule, items = [], tasks = [], latestLog, onBack, onWeekly }) {
-  const details = buildDailyDetailsData({ day, schedule, items, tasks, latestLog });
+  const dayKey = day?.key || datePart(schedule?.schedule_date) || toDateKey(new Date());
+  const [detailItems, setDetailItems] = useState(() => initializeDailyDetailItems({ day, schedule, items, tasks }));
+  const [notice, setNotice] = useState('');
+  const [editingItemId, setEditingItemId] = useState(null);
+  const [editDraft, setEditDraft] = useState(null);
+  const details = splitDailyDetailItems(detailItems, latestLog);
+
+  useEffect(() => {
+    setDetailItems(initializeDailyDetailItems({ day, schedule, items, tasks }));
+    setNotice('');
+    setEditingItemId(null);
+    setEditDraft(null);
+  }, [dayKey, schedule?.schedule_id, items, tasks]);
+
+  useEffect(() => {
+    function refreshFixedTasks() {
+      setDetailItems((currentItems) => {
+        const result = applyFixedTimeAutomation(currentItems, new Date());
+        if (result.notice) {
+          setNotice(result.notice);
+        }
+        return result.items;
+      });
+    }
+
+    refreshFixedTasks();
+    const timer = window.setInterval(refreshFixedTasks, 15000);
+    return () => window.clearInterval(timer);
+  }, [dayKey]);
+
+  function startTask(item) {
+    if (item.task_kind === 'fixed') {
+      setNotice('Fixed-time tasks start automatically at their scheduled time.');
+      return;
+    }
+
+    const activeTask = detailItems.find((detailItem) => detailItem.status === 'in_progress');
+    if (activeTask && getDetailItemId(activeTask) !== getDetailItemId(item)) {
+      setNotice('Finish or return the current task before starting another one.');
+      return;
+    }
+
+    setDetailItems((currentItems) => currentItems.map((detailItem) => (
+      getDetailItemId(detailItem) === getDetailItemId(item)
+        ? { ...detailItem, status: 'in_progress' }
+        : detailItem
+    )));
+    setNotice('Task moved to In Progress.');
+  }
+
+  function finishTask(item) {
+    setDetailItems((currentItems) => currentItems.map((detailItem) => (
+      getDetailItemId(detailItem) === getDetailItemId(item)
+        ? { ...detailItem, status: 'completed', completed_at: new Date().toISOString() }
+        : detailItem
+    )));
+    setNotice('Task moved to Completed Tasks.');
+  }
+
+  function returnToWaiting(item) {
+    setDetailItems((currentItems) => currentItems.map((detailItem) => (
+      getDetailItemId(detailItem) === getDetailItemId(item)
+        ? { ...detailItem, status: 'waiting' }
+        : detailItem
+    )));
+    setNotice('Task returned to Waiting Tasks.');
+  }
+
+  function beginEdit(item) {
+    setEditingItemId(getDetailItemId(item));
+    setEditDraft(buildDailyTaskEditDraft(item));
+  }
+
+  function cancelEdit() {
+    setEditingItemId(null);
+    setEditDraft(null);
+  }
+
+  function saveEdit(item) {
+    if (!editDraft?.title?.trim()) {
+      setNotice('Task title is required before saving the update.');
+      return;
+    }
+
+    if (editDraft.start_time && editDraft.end_time && editDraft.start_time >= editDraft.end_time) {
+      setNotice('Task end time must be after the start time.');
+      return;
+    }
+
+    setDetailItems((currentItems) => currentItems.map((detailItem) => (
+      getDetailItemId(detailItem) === getDetailItemId(item)
+        ? applyDailyTaskEdit(detailItem, editDraft, dayKey)
+        : detailItem
+    )));
+    setNotice('Waiting task updated.');
+    cancelEdit();
+  }
 
   return (
     <section className="daily-details-page">
@@ -594,6 +690,8 @@ function DailyDetailsPage({ day, schedule, items = [], tasks = [], latestLog, on
         </button>
       </div>
 
+      {notice ? <p className="daily-notice">{notice}</p> : null}
+
       <div className="daily-details-grid">
         <section className="daily-details-card waiting-card">
           <DailyDetailsCardHeader icon={ListChecks} eyebrow="Planned" title="Waiting Tasks" />
@@ -602,7 +700,18 @@ function DailyDetailsPage({ day, schedule, items = [], tasks = [], latestLog, on
           ) : (
             <div className="detail-task-list">
               {details.waitingTasks.map((item) => (
-                <DailyDetailTaskCard item={item} key={item.schedule_item_id} />
+                <DailyDetailTaskCard
+                  item={item}
+                  key={getDetailItemId(item)}
+                  mode="waiting"
+                  isEditing={editingItemId === getDetailItemId(item)}
+                  editDraft={editDraft}
+                  onEditDraftChange={(updates) => setEditDraft((current) => ({ ...(current || {}), ...updates }))}
+                  onEdit={beginEdit}
+                  onSaveEdit={saveEdit}
+                  onCancelEdit={cancelEdit}
+                  onStart={startTask}
+                />
               ))}
             </div>
           )}
@@ -611,7 +720,13 @@ function DailyDetailsPage({ day, schedule, items = [], tasks = [], latestLog, on
         <section className="daily-details-card progress-card">
           <DailyDetailsCardHeader icon={PlayCircle} eyebrow="Current" title="Task In Progress" />
           {details.currentTask ? (
-            <DailyDetailTaskCard item={details.currentTask} showProgress />
+            <DailyDetailTaskCard
+              item={details.currentTask}
+              mode="progress"
+              showProgress
+              onFinish={finishTask}
+              onReturn={returnToWaiting}
+            />
           ) : (
             <p className="no-results">No task in progress</p>
           )}
@@ -624,7 +739,7 @@ function DailyDetailsPage({ day, schedule, items = [], tasks = [], latestLog, on
           ) : (
             <div className="detail-task-list">
               {details.completedTasks.map((item) => (
-                <DailyDetailTaskCard item={item} key={item.schedule_item_id} completed />
+                <DailyDetailTaskCard item={item} key={getDetailItemId(item)} completed />
               ))}
             </div>
           )}
@@ -637,11 +752,12 @@ function DailyDetailsPage({ day, schedule, items = [], tasks = [], latestLog, on
           ) : (
             <div className="timeline-list">
               {details.timeline.map((item) => (
-                <article className="timeline-row" key={item.schedule_item_id}>
+                <article className={`timeline-row ${item.status}`} key={getDetailItemId(item)}>
                   <time>{formatTimeRange(item.start_time, item.end_time)}</time>
                   <div>
                     <strong>{item.title}</strong>
                     <span>{item.reason || 'Planned schedule block'}</span>
+                    <em>{formatTaskStatus(item.status)}</em>
                   </div>
                 </article>
               ))}
@@ -728,25 +844,136 @@ function DailyDetailsCardHeader({ icon: Icon, eyebrow, title }) {
   );
 }
 
-function DailyDetailTaskCard({ item, showProgress = false, completed = false }) {
+function DailyDetailTaskCard({
+  item,
+  mode = 'readonly',
+  showProgress = false,
+  completed = false,
+  isEditing = false,
+  editDraft,
+  onEditDraftChange,
+  onEdit,
+  onSaveEdit,
+  onCancelEdit,
+  onStart,
+  onFinish,
+  onReturn
+}) {
+  const isFixed = item.task_kind === 'fixed';
+
   return (
     <article className={`detail-task-card ${completed ? 'completed' : ''}`}>
-      <div>
-        <strong>{item.title}</strong>
-        <span>{formatTimeRange(item.start_time, item.end_time)}</span>
-      </div>
-      <div className="chip-line">
-        <span>{item.task_kind || 'flexible'}</span>
-        <span>Difficulty {item.difficulty_level || item.task?.difficulty_level || 3}</span>
-        <span>Priority {item.task?.priority_level || 3}</span>
-      </div>
-      {showProgress ? (
-        <div className="task-progress-line">
-          <i style={{ width: `${item.progress || 0}%` }}></i>
-        </div>
-      ) : null}
+      {isEditing ? (
+        <DailyTaskEditForm
+          draft={editDraft}
+          onChange={onEditDraftChange}
+          onSave={() => onSaveEdit?.(item)}
+          onCancel={onCancelEdit}
+        />
+      ) : (
+        <>
+          <div>
+            <strong>{item.title}</strong>
+            <span>{formatTimeRange(item.start_time, item.end_time)}</span>
+          </div>
+          <div className="chip-line">
+            <span>{isFixed ? 'fixed-time' : 'flexible'}</span>
+            <span>Difficulty {item.difficulty_level || item.task?.difficulty_level || 3}</span>
+            <span>Priority {item.task?.priority_level || item.priority_level || 3}</span>
+            <span>{formatTaskStatus(item.status)}</span>
+          </div>
+          {showProgress ? (
+            <div className="task-progress-line">
+              <i style={{ width: `${item.progress || 45}%` }}></i>
+            </div>
+          ) : null}
+          {mode === 'waiting' ? (
+            <div className="detail-task-actions">
+              <button type="button" onClick={() => onEdit?.(item)}>
+                <Pencil size={15} />
+                Edit
+              </button>
+              <button type="button" onClick={() => onStart?.(item)}>
+                <PlayCircle size={15} />
+                {isFixed ? 'Auto Start' : 'Start'}
+              </button>
+            </div>
+          ) : null}
+          {mode === 'progress' ? (
+            <div className="detail-task-actions">
+              <button type="button" onClick={() => onFinish?.(item)}>
+                <CheckCircle2 size={15} />
+                Finish
+              </button>
+              <button className="secondary" type="button" onClick={() => onReturn?.(item)}>
+                <ArrowLeft size={15} />
+                Return to Waiting
+              </button>
+            </div>
+          ) : null}
+        </>
+      )}
       {completed ? <em>Completed</em> : null}
     </article>
+  );
+}
+
+function DailyTaskEditForm({ draft, onChange, onSave, onCancel }) {
+  if (!draft) return null;
+
+  return (
+    <form
+      className="daily-task-edit-form"
+      onSubmit={(event) => {
+        event.preventDefault();
+        onSave?.();
+      }}>
+      <label>
+        Task title
+        <input value={draft.title} onChange={(event) => onChange?.({ title: event.target.value })} />
+      </label>
+      <div className="field-grid two">
+        <label>
+          Priority
+          <select value={draft.priority_level} onChange={(event) => onChange?.({ priority_level: event.target.value })}>
+            <option value="5">Very high</option>
+            <option value="4">High</option>
+            <option value="3">Medium</option>
+            <option value="2">Low</option>
+            <option value="1">Very low</option>
+          </select>
+        </label>
+        <label>
+          Difficulty
+          <select value={draft.difficulty_level} onChange={(event) => onChange?.({ difficulty_level: event.target.value })}>
+            <option value="5">Very hard</option>
+            <option value="4">Hard</option>
+            <option value="3">Medium</option>
+            <option value="2">Easy</option>
+            <option value="1">Very easy</option>
+          </select>
+        </label>
+      </div>
+      <div className="field-grid two">
+        <label>
+          Start
+          <input type="time" value={draft.start_time} onChange={(event) => onChange?.({ start_time: event.target.value })} />
+        </label>
+        <label>
+          End
+          <input type="time" value={draft.end_time} onChange={(event) => onChange?.({ end_time: event.target.value })} />
+        </label>
+      </div>
+      <div className="detail-task-actions">
+        <button type="submit">
+          <CheckCircle2 size={15} />
+          Update
+        </button>
+        <button className="secondary" type="button" onClick={onCancel}>
+          Cancel
+        </button>
+      </div>
+    </form>
   );
 }
 
@@ -1134,28 +1361,185 @@ function normalizeSelectedDayTask(taskDraft, selectedDate) {
 }
 
 function buildDailyDetailsData({ day, schedule, items, tasks, latestLog }) {
+  const detailItems = initializeDailyDetailItems({ day, schedule, items, tasks });
+  return splitDailyDetailItems(detailItems, latestLog);
+}
+
+function initializeDailyDetailItems({ day, schedule, items = [], tasks = [] }) {
   const dayKey = day?.key || datePart(schedule?.schedule_date);
   const taskById = new Map(tasks.map((task) => [task.task_id, task]));
-  const dayItems = items
-    .filter((item) => !dayKey || datePart(item.start_time) === dayKey || datePart(schedule?.schedule_date) === dayKey)
-    .map((item) => ({
-      ...item,
-      task: taskById.get(item.task_id)
-    }))
-    .sort((a, b) => new Date(a.start_time) - new Date(b.start_time));
+  const now = new Date();
 
-  const currentTask = dayItems.find((item) => ['active', 'in_progress'].includes(item.status)) || null;
-  const completedTasks = dayItems.filter((item) => item.status === 'completed' || item.task?.is_completed);
-  const waitingTasks = dayItems.filter((item) => item !== currentTask && !completedTasks.includes(item));
-  const advice = buildDailyAdvice({ waitingTasks, completedTasks, currentTask, latestLog, dayItems });
+  return items
+    .filter((item) => !dayKey || datePart(item.start_time) === dayKey || datePart(schedule?.schedule_date) === dayKey)
+    .map((item, index) => {
+      const task = taskById.get(item.task_id);
+      const taskKind = item.task_kind || (task?.is_fixed_time ? 'fixed' : 'flexible');
+      const detailItem = {
+        ...item,
+        detail_id: item.schedule_item_id || item.task_id || `daily_item_${index}`,
+        task,
+        task_kind: taskKind,
+        status: normalizeDailyTaskStatus(item, task, taskKind, now)
+      };
+      return detailItem;
+    })
+    .sort((a, b) => new Date(a.start_time) - new Date(b.start_time));
+}
+
+function splitDailyDetailItems(detailItems, latestLog) {
+  const sortedItems = [...detailItems].sort((a, b) => new Date(a.start_time) - new Date(b.start_time));
+  const currentTask = sortedItems.find((item) => item.status === 'in_progress') || null;
+  const completedTasks = sortedItems.filter((item) => item.status === 'completed');
+  const waitingTasks = sortedItems.filter((item) => item.status === 'waiting');
+  const advice = buildDailyAdvice({ waitingTasks, completedTasks, currentTask, latestLog, dayItems: sortedItems });
 
   return {
     waitingTasks,
     currentTask,
     completedTasks,
-    timeline: dayItems,
+    timeline: sortedItems,
     advice
   };
+}
+
+function normalizeDailyTaskStatus(item, task, taskKind, now) {
+  if (item.status === 'completed' || task?.is_completed) return 'completed';
+  if (item.status === 'in_progress' || item.status === 'active') return 'in_progress';
+
+  if (taskKind === 'fixed') {
+    const start = new Date(item.start_time);
+    const end = new Date(item.end_time);
+    if (isValidDate(end) && now >= end) return 'completed';
+    if (isValidDate(start) && isValidDate(end) && now >= start && now < end) return 'in_progress';
+  }
+
+  return 'waiting';
+}
+
+function applyFixedTimeAutomation(items, now) {
+  let notice = '';
+  const nextItems = items.map((item) => {
+    if (item.task_kind !== 'fixed') return item;
+
+    const start = new Date(item.start_time);
+    const end = new Date(item.end_time);
+    if (!isValidDate(start) || !isValidDate(end)) return item;
+    if (now >= end && item.status !== 'completed') {
+      return { ...item, status: 'completed', completed_at: now.toISOString() };
+    }
+    return item;
+  });
+
+  const fixedToStart = nextItems
+    .filter((item) => {
+      if (item.task_kind !== 'fixed' || item.status === 'completed') return false;
+      const start = new Date(item.start_time);
+      const end = new Date(item.end_time);
+      return isValidDate(start) && isValidDate(end) && now >= start && now < end;
+    })
+    .sort((a, b) => new Date(a.start_time) - new Date(b.start_time))[0];
+
+  if (!fixedToStart) {
+    return {
+      items: enforceSingleInProgress(nextItems),
+      notice
+    };
+  }
+
+  const fixedId = getDetailItemId(fixedToStart);
+  const currentActive = nextItems.find((item) => item.status === 'in_progress' && getDetailItemId(item) !== fixedId);
+  const updatedItems = nextItems.map((item) => {
+    const itemId = getDetailItemId(item);
+    if (itemId === fixedId) {
+      if (item.status !== 'in_progress') {
+        notice = 'Fixed-time task started and was moved to In Progress.';
+      }
+      return { ...item, status: 'in_progress' };
+    }
+    if (currentActive && itemId === getDetailItemId(currentActive) && item.task_kind !== 'fixed') {
+      notice = 'Fixed-time task started and was moved to In Progress.';
+      return { ...item, status: 'waiting' };
+    }
+    return item;
+  });
+
+  return {
+    items: enforceSingleInProgress(updatedItems),
+    notice
+  };
+}
+
+function enforceSingleInProgress(items) {
+  const activeItems = items.filter((item) => item.status === 'in_progress');
+  if (activeItems.length <= 1) return items;
+
+  const preferredActive = activeItems.find((item) => item.task_kind === 'fixed') || activeItems[0];
+  const preferredId = getDetailItemId(preferredActive);
+  return items.map((item) => {
+    if (item.status !== 'in_progress' || getDetailItemId(item) === preferredId) return item;
+    return { ...item, status: 'waiting' };
+  });
+}
+
+function buildDailyTaskEditDraft(item) {
+  return {
+    title: item.title || '',
+    priority_level: String(item.task?.priority_level || item.priority_level || 3),
+    difficulty_level: String(item.difficulty_level || item.task?.difficulty_level || 3),
+    start_time: formatTimeForInput(item.start_time),
+    end_time: formatTimeForInput(item.end_time)
+  };
+}
+
+function applyDailyTaskEdit(item, draft, dayKey) {
+  const priorityLevel = Number.parseInt(draft.priority_level, 10) || item.task?.priority_level || 3;
+  const difficultyLevel = Number.parseInt(draft.difficulty_level, 10) || item.difficulty_level || 3;
+
+  return {
+    ...item,
+    title: draft.title.trim(),
+    difficulty_level: difficultyLevel,
+    start_time: replaceTimePart(item.start_time, draft.start_time, dayKey),
+    end_time: replaceTimePart(item.end_time, draft.end_time, dayKey),
+    task: {
+      ...(item.task || {}),
+      title: draft.title.trim(),
+      priority_level: priorityLevel,
+      difficulty_level: difficultyLevel
+    }
+  };
+}
+
+function replaceTimePart(originalValue, timeValue, fallbackDate) {
+  if (!timeValue) return originalValue;
+  const dateKey = datePart(originalValue) || fallbackDate || toDateKey(new Date());
+  return new Date(`${dateKey}T${timeValue}:00`).toISOString();
+}
+
+function formatTimeForInput(value) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (isValidDate(date)) {
+    return [
+      String(date.getHours()).padStart(2, '0'),
+      String(date.getMinutes()).padStart(2, '0')
+    ].join(':');
+  }
+  return String(value).slice(0, 5);
+}
+
+function getDetailItemId(item) {
+  return item.detail_id || item.schedule_item_id || item.task_id || `${item.title}-${item.start_time}`;
+}
+
+function formatTaskStatus(status) {
+  if (status === 'in_progress') return 'in progress';
+  return status || 'waiting';
+}
+
+function isValidDate(date) {
+  return date instanceof Date && !Number.isNaN(date.getTime());
 }
 
 function buildDailyAdvice({ waitingTasks, completedTasks, currentTask, latestLog, dayItems }) {

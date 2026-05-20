@@ -550,6 +550,11 @@ git switch -c first-version
 - Task form validation now keeps typed data visible when required fields are missing.
 - Moved the `Added Tasks` preview inside the Tasks container so added tasks are visible immediately under the form.
 - Removed the unnecessary `Open Daily Planner` button from the top of the Weekly Task Management dashboard.
+- Added Daily Details task movement behavior between `waiting`, `in_progress`, and `completed`.
+- Waiting tasks now support local edit/update and flexible tasks can be started manually.
+- Task In Progress now allows finishing the task or returning it back to Waiting Tasks.
+- Fixed-time tasks now move automatically into progress at their scheduled start time and complete automatically after their end time.
+- The Daily Details page prevents more than one task from being in progress at the same time.
 
 ### 2026-05-19
 - Added registration-first flow before opening the main planner.
