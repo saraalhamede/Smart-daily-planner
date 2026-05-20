@@ -549,6 +549,7 @@ git switch -c first-version
 - `Generate Daily Schedule` now uses the tasks from the `Added Tasks` preview list and is disabled until at least one task is added.
 - Task form validation now keeps typed data visible when required fields are missing.
 - Moved the `Added Tasks` preview inside the Tasks container so added tasks are visible immediately under the form.
+- Removed the unnecessary `Open Daily Planner` button from the top of the Weekly Task Management dashboard.
 
 ### 2026-05-19
 - Added registration-first flow before opening the main planner.

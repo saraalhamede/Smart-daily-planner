@@ -198,7 +198,6 @@ export function App() {
             scheduleItems={scheduleItems}
             latestLog={bootstrap?.latest_daily_log}
             isLoading={isLoading}
-            onOpenPlanner={() => setCurrentPage('planner')}
             onSelectDay={(day) => {
               setSelectedDay(day);
               setCurrentPage(hasGeneratedPlanForDay(day.key, schedule, scheduleItems) ? 'generated' : 'day');
@@ -308,7 +307,7 @@ export function App() {
   );
 }
 
-function WeeklyDashboard({ tasks, scheduleItems, latestLog, isLoading, onOpenPlanner, onSelectDay }) {
+function WeeklyDashboard({ tasks, scheduleItems, latestLog, isLoading, onSelectDay }) {
   const weekDays = getCurrentWeekDays();
   const weeklyData = buildWeeklyDashboardData({ tasks, scheduleItems, latestLog, weekDays });
 
@@ -324,10 +323,6 @@ function WeeklyDashboard({ tasks, scheduleItems, latestLog, isLoading, onOpenPla
           <h1>Current Week</h1>
           <span className="toolbar-copy">Your weekly task management dashboard at a glance.</span>
         </div>
-        <button className="primary-action" type="button" onClick={onOpenPlanner}>
-          <CalendarClock size={18} />
-          Open Daily Planner
-        </button>
       </div>
 
       {weeklyData.isNewUser ? (
