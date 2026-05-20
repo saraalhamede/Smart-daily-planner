@@ -74,20 +74,46 @@ export function App() {
     const result = await plannerApi.createDailyLog({ ...payload, user_id: userId });
     setBootstrap((current) => ({ ...(current || {}), latest_daily_log: result.daily_log }));
     setMessage(`Check-in saved. Detected emotion: ${result.daily_log.detected_emotion}.`);
+    return result;
   }
 
   async function handleTaskSubmit(payload) {
-    await plannerApi.createTask({ ...payload, user_id: userId });
+    const result = await plannerApi.createTask({ ...payload, user_id: userId });
     await refreshTasks();
     setMessage(payload.is_fixed_time ? 'Fixed task added.' : 'Flexible task added.');
+    return result;
   }
 
   async function handleGenerateSchedule() {
-    const result = await plannerApi.generateSchedule(userId);
+    const result = await plannerApi.generateSchedule({ user_id: userId });
     setSchedule(result.schedule);
     setScheduleItems(result.items || []);
     await refreshTasks();
     setMessage('Schedule generated.');
+    return result;
+  }
+
+  async function handleGenerateSelectedDay(day, checkInDraft, taskDraft) {
+    const dailyLogResult = await handleDailyLogSubmit({
+      ...getDefaultCheckInDraft(),
+      ...(checkInDraft || {}),
+      log_date: day.key
+    });
+
+    if (taskDraft?.title?.trim()) {
+      await handleTaskSubmit(normalizeSelectedDayTask(taskDraft, day.key));
+    }
+
+    const result = await plannerApi.generateSchedule({
+      user_id: userId,
+      daily_log_id: dailyLogResult.daily_log.log_id
+    });
+    setSchedule(result.schedule);
+    setScheduleItems(result.items || []);
+    await refreshTasks();
+    setMessage('Daily schedule generated for the selected day.');
+    setCurrentPage('generated');
+    return result;
   }
 
   async function handleFeedbackSubmit(payload) {
@@ -171,10 +197,21 @@ export function App() {
             }}
           />
         ) : currentPage === 'day' ? (
-          <DailyDetailPlaceholder
+          <SelectedDayInputPage
             day={selectedDay}
             onBack={() => setCurrentPage('weekly')}
-            onOpenPlanner={() => setCurrentPage('planner')}
+            onDailyLogSubmit={handleDailyLogSubmit}
+            onTaskSubmit={handleTaskSubmit}
+            onGenerate={handleGenerateSelectedDay}
+            latestLog={bootstrap?.latest_daily_log}
+          />
+        ) : currentPage === 'generated' ? (
+          <GeneratedSchedulePlaceholder
+            day={selectedDay}
+            schedule={schedule}
+            items={scheduleItems}
+            onBack={() => setCurrentPage('day')}
+            onWeekly={() => setCurrentPage('weekly')}
           />
         ) : (
           <>
@@ -417,22 +454,87 @@ function WeeklyDashboard({ tasks, scheduleItems, latestLog, isLoading, onOpenPla
   );
 }
 
-function DailyDetailPlaceholder({ day, onBack, onOpenPlanner }) {
+function SelectedDayInputPage({ day, onBack, onDailyLogSubmit, onTaskSubmit, onGenerate, latestLog }) {
+  const [checkInDraft, setCheckInDraft] = useState(getDefaultCheckInDraft());
+  const [taskDraft, setTaskDraft] = useState(null);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const dayKey = day?.key || toDateKey(new Date());
+  const dayTitle = formatSelectedDayHeading(day);
+
+  async function handleGenerateClick() {
+    setIsGenerating(true);
+    try {
+      await onGenerate({ ...(day || {}), key: dayKey }, checkInDraft, taskDraft);
+    } finally {
+      setIsGenerating(false);
+    }
+  }
+
+  return (
+    <section className="selected-day-page">
+      <div className="selected-day-hero">
+        <button className="text-action compact" type="button" onClick={onBack}>
+          <ArrowLeft size={16} />
+          Back to weekly dashboard
+        </button>
+        <div>
+          <p className="eyebrow">Selected Day</p>
+          <h1>{dayTitle}</h1>
+          <span>Fill the daily check-in and add the tasks for this specific day.</span>
+        </div>
+      </div>
+
+      <div className="selected-day-grid">
+        <DailyCheckIn
+          onSubmit={onDailyLogSubmit}
+          latestLog={datePart(latestLog?.log_date) === dayKey ? latestLog : null}
+          selectedDate={dayKey}
+          onDraftChange={setCheckInDraft}
+        />
+        <TaskForm
+          onSubmit={onTaskSubmit}
+          selectedDate={dayKey}
+          onDraftChange={setTaskDraft}
+        />
+      </div>
+
+      <section className="generate-day-card">
+        <div>
+          <p className="eyebrow">Next Step</p>
+          <h2>Ready to generate this day?</h2>
+          <span>The system will save the selected-day input, run the scheduler, and open the result page.</span>
+        </div>
+        <button className="primary-action" type="button" onClick={handleGenerateClick} disabled={isGenerating}>
+          <CalendarClock size={18} />
+          {isGenerating ? 'Generating...' : 'Generate Daily Schedule'}
+        </button>
+      </section>
+    </section>
+  );
+}
+
+function GeneratedSchedulePlaceholder({ day, schedule, items, onBack, onWeekly }) {
   return (
     <section className="daily-placeholder">
       <button className="text-action compact" type="button" onClick={onBack}>
         <ArrowLeft size={16} />
-        Back to weekly dashboard
+        Back to selected day input
       </button>
       <div className="daily-placeholder-card">
         <Clock3 size={46} />
-        <p className="eyebrow">Daily Interface</p>
-        <h1>{day ? `${day.dayName}, ${day.shortDate}` : 'Selected Day'}</h1>
+        <p className="eyebrow">Generated Schedule</p>
+        <h1>{formatSelectedDayHeading(day)}</h1>
         <p>
-          The detailed daily screen is prepared for navigation. We will build this interface in the next step.
+          The generation result page is ready as a route placeholder. We will design the full schedule result view later.
         </p>
-        <button className="primary-action" type="button" onClick={onOpenPlanner}>
-          Open current daily planner
+        {schedule ? (
+          <div className="placeholder-summary">
+            <span>{items.length} schedule items generated</span>
+            <strong>{schedule.schedule_note}</strong>
+          </div>
+        ) : null}
+        <button className="primary-action" type="button" onClick={onWeekly}>
+          Back to Weekly Dashboard
         </button>
       </div>
     </section>
@@ -724,6 +826,7 @@ function getTaskWeekDateKey(task, scheduleDateByTask, weekKeys) {
   }
 
   const candidates = [
+    datePart(task.task_date),
     task.fixed_date,
     datePart(task.deadline)
   ].filter(Boolean);
@@ -792,6 +895,40 @@ function stressLabel(level) {
   if (level <= 2) return 'low';
   if (level === 3) return 'medium';
   return 'high';
+}
+
+function getDefaultCheckInDraft() {
+  return {
+    mood_text_original: '',
+    mood_level: 3,
+    energy_level: 3,
+    stress_level: 3,
+    sleep_hours: 7,
+    is_tired: false,
+    planning_start: '',
+    planning_end: ''
+  };
+}
+
+function normalizeSelectedDayTask(taskDraft, selectedDate) {
+  const payload = {
+    ...taskDraft,
+    task_date: selectedDate
+  };
+
+  if (payload.is_fixed_time) {
+    payload.fixed_date = selectedDate;
+  }
+
+  return payload;
+}
+
+function formatSelectedDayHeading(day) {
+  if (!day) return 'Selected Day';
+  const date = day.date instanceof Date ? day.date : new Date(`${day.key}T00:00:00`);
+  const weekday = new Intl.DateTimeFormat('en', { weekday: 'long' }).format(date);
+  const shortDate = day.shortDate || `${String(date.getDate()).padStart(2, '0')}/${String(date.getMonth() + 1).padStart(2, '0')}`;
+  return `${weekday}, ${shortDate}`;
 }
 
 function ProfileImageField({ value, onChange }) {

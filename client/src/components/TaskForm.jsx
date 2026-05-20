@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 const initialState = {
   title: '',
@@ -14,16 +14,30 @@ const initialState = {
   fixed_end_time: ''
 };
 
-export function TaskForm({ onSubmit }) {
-  const [form, setForm] = useState(initialState);
+export function TaskForm({ onSubmit, selectedDate, onDraftChange }) {
+  const [form, setForm] = useState(() => buildInitialState(selectedDate));
   const [isSaving, setIsSaving] = useState(false);
+
+  useEffect(() => {
+    const next = buildInitialState(selectedDate);
+    setForm(next);
+    onDraftChange?.(next);
+  }, [selectedDate]);
+
+  function updateForm(updates) {
+    const next = { ...form, ...updates };
+    setForm(next);
+    onDraftChange?.(next);
+  }
 
   async function handleSubmit(event) {
     event.preventDefault();
     setIsSaving(true);
     try {
-      await onSubmit(form);
-      setForm(initialState);
+      await onSubmit(normalizeTaskPayload(form, selectedDate));
+      const next = buildInitialState(selectedDate);
+      setForm(next);
+      onDraftChange?.(next);
     } finally {
       setIsSaving(false);
     }
@@ -42,11 +56,11 @@ export function TaskForm({ onSubmit }) {
       <form className="form-stack" onSubmit={handleSubmit}>
         <label>
           Title
-          <input value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} required />
+          <input value={form.title} onChange={(event) => updateForm({ title: event.target.value })} required />
         </label>
         <label>
           Description
-          <textarea value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} />
+          <textarea value={form.description} onChange={(event) => updateForm({ description: event.target.value })} />
         </label>
 
         <div className="field-grid two">
@@ -57,12 +71,12 @@ export function TaskForm({ onSubmit }) {
               min="15"
               step="15"
               value={form.estimated_duration_minutes}
-              onChange={(event) => setForm({ ...form, estimated_duration_minutes: event.target.value })}
+              onChange={(event) => updateForm({ estimated_duration_minutes: event.target.value })}
             />
           </label>
           <label>
             Category
-            <select value={form.category} onChange={(event) => setForm({ ...form, category: event.target.value })}>
+            <select value={form.category} onChange={(event) => updateForm({ category: event.target.value })}>
               <option value="">Auto</option>
               <option value="study">Study</option>
               <option value="coding">Coding</option>
@@ -75,7 +89,7 @@ export function TaskForm({ onSubmit }) {
         <div className="field-grid two">
           <label>
             Priority
-            <select value={form.priority_level} onChange={(event) => setForm({ ...form, priority_level: event.target.value })}>
+            <select value={form.priority_level} onChange={(event) => updateForm({ priority_level: event.target.value })}>
               <option value="5">Very high</option>
               <option value="4">High</option>
               <option value="3">Medium</option>
@@ -85,7 +99,7 @@ export function TaskForm({ onSubmit }) {
           </label>
           <label>
             Difficulty
-            <select value={form.difficulty_level} onChange={(event) => setForm({ ...form, difficulty_level: event.target.value })}>
+            <select value={form.difficulty_level} onChange={(event) => updateForm({ difficulty_level: event.target.value })}>
               <option value="">Auto</option>
               <option value="5">Very hard</option>
               <option value="4">Hard</option>
@@ -98,31 +112,38 @@ export function TaskForm({ onSubmit }) {
 
         <label>
           Deadline
-          <input type="datetime-local" value={form.deadline} onChange={(event) => setForm({ ...form, deadline: event.target.value })} />
+          <input type="datetime-local" value={form.deadline} onChange={(event) => updateForm({ deadline: event.target.value })} />
         </label>
 
         <label className="checkbox-row">
           <input
             type="checkbox"
             checked={form.is_fixed_time}
-            onChange={(event) => setForm({ ...form, is_fixed_time: event.target.checked })}
+            onChange={(event) => updateForm({ is_fixed_time: event.target.checked })}
           />
           This is a fixed-time task
         </label>
 
         {form.is_fixed_time ? (
           <div className="field-grid">
-            <label>
-              Fixed date
-              <input type="date" value={form.fixed_date} onChange={(event) => setForm({ ...form, fixed_date: event.target.value })} />
-            </label>
+            {selectedDate ? (
+              <div className="fixed-date-note">
+                <strong>Fixed date</strong>
+                <span>{formatSelectedDate(selectedDate)}</span>
+              </div>
+            ) : (
+              <label>
+                Fixed date
+                <input type="date" value={form.fixed_date} onChange={(event) => updateForm({ fixed_date: event.target.value })} />
+              </label>
+            )}
             <label>
               Start
-              <input type="time" value={form.fixed_start_time} onChange={(event) => setForm({ ...form, fixed_start_time: event.target.value })} />
+              <input type="time" value={form.fixed_start_time} onChange={(event) => updateForm({ fixed_start_time: event.target.value })} />
             </label>
             <label>
               End
-              <input type="time" value={form.fixed_end_time} onChange={(event) => setForm({ ...form, fixed_end_time: event.target.value })} />
+              <input type="time" value={form.fixed_end_time} onChange={(event) => updateForm({ fixed_end_time: event.target.value })} />
             </label>
           </div>
         ) : null}
@@ -133,4 +154,30 @@ export function TaskForm({ onSubmit }) {
       </form>
     </section>
   );
+}
+
+function buildInitialState(selectedDate) {
+  return {
+    ...initialState,
+    fixed_date: selectedDate || ''
+  };
+}
+
+function normalizeTaskPayload(form, selectedDate) {
+  const payload = {
+    ...form,
+    task_date: selectedDate || form.fixed_date || ''
+  };
+
+  if (form.is_fixed_time && selectedDate) {
+    payload.fixed_date = selectedDate;
+  }
+
+  return payload;
+}
+
+function formatSelectedDate(value) {
+  if (!value) return '';
+  const [, month, day] = value.split('-');
+  return `${day}/${month}`;
 }

@@ -78,6 +78,7 @@ CREATE TABLE tasks (
   difficulty_level TINYINT NOT NULL DEFAULT 3,
   estimated_duration_minutes INT,
   remaining_duration_minutes INT,
+  task_date DATE,
   deadline DATETIME,
   status VARCHAR(30) NOT NULL DEFAULT 'pending',
   is_completed BOOLEAN NOT NULL DEFAULT FALSE,
@@ -170,6 +171,7 @@ CREATE TABLE survey_responses (
 
 CREATE INDEX idx_daily_logs_user_date ON daily_logs(user_id, log_date);
 CREATE INDEX idx_tasks_user_status ON tasks(user_id, status);
+CREATE INDEX idx_tasks_user_task_date ON tasks(user_id, task_date);
 CREATE INDEX idx_tasks_fixed_time ON tasks(user_id, fixed_date, is_fixed_time);
 CREATE INDEX idx_schedules_user_date ON schedules(user_id, schedule_date);
 CREATE INDEX idx_schedule_items_schedule_time ON schedule_items(schedule_id, start_time);

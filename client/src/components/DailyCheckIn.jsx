@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 const initialState = {
   mood_text_original: '',
@@ -11,16 +11,33 @@ const initialState = {
   planning_end: ''
 };
 
-export function DailyCheckIn({ onSubmit, latestLog }) {
+export function DailyCheckIn({ onSubmit, latestLog, selectedDate, onDraftChange }) {
   const [form, setForm] = useState(initialState);
   const [isSaving, setIsSaving] = useState(false);
+
+  useEffect(() => {
+    setForm(initialState);
+    onDraftChange?.(initialState);
+  }, [selectedDate]);
+
+  function updateForm(updates) {
+    const next = { ...form, ...updates };
+    setForm(next);
+    onDraftChange?.(next);
+  }
 
   async function handleSubmit(event) {
     event.preventDefault();
     setIsSaving(true);
     try {
-      await onSubmit(form);
-      setForm((current) => ({ ...current, mood_text_original: '' }));
+      const payload = selectedDate ? { ...form, log_date: selectedDate } : form;
+      const result = await onSubmit(payload);
+      setForm((current) => {
+        const next = { ...current, mood_text_original: '' };
+        onDraftChange?.(next);
+        return next;
+      });
+      return result;
     } finally {
       setIsSaving(false);
     }
@@ -41,15 +58,15 @@ export function DailyCheckIn({ onSubmit, latestLog }) {
           Mood note
           <textarea
             value={form.mood_text_original}
-            onChange={(event) => setForm({ ...form, mood_text_original: event.target.value })}
+            onChange={(event) => updateForm({ mood_text_original: event.target.value })}
             placeholder="Share your mood, energy level, or any challenges..."
           />
         </label>
 
         <div className="metric-grid">
-          <RangeField label="Mood" value={form.mood_level} onChange={(value) => setForm({ ...form, mood_level: value })} />
-          <RangeField label="Energy" value={form.energy_level} onChange={(value) => setForm({ ...form, energy_level: value })} />
-          <RangeField label="Stress" value={form.stress_level} onChange={(value) => setForm({ ...form, stress_level: value })} />
+          <RangeField label="Mood" value={form.mood_level} onChange={(value) => updateForm({ mood_level: value })} />
+          <RangeField label="Energy" value={form.energy_level} onChange={(value) => updateForm({ energy_level: value })} />
+          <RangeField label="Stress" value={form.stress_level} onChange={(value) => updateForm({ stress_level: value })} />
           <label>
             Sleep hours
             <input
@@ -58,7 +75,7 @@ export function DailyCheckIn({ onSubmit, latestLog }) {
               max="14"
               step="0.5"
               value={form.sleep_hours}
-              onChange={(event) => setForm({ ...form, sleep_hours: event.target.value })}
+              onChange={(event) => updateForm({ sleep_hours: event.target.value })}
             />
           </label>
         </div>
@@ -68,17 +85,17 @@ export function DailyCheckIn({ onSubmit, latestLog }) {
             <input
               type="checkbox"
               checked={form.is_tired}
-              onChange={(event) => setForm({ ...form, is_tired: event.target.checked })}
+              onChange={(event) => updateForm({ is_tired: event.target.checked })}
             />
             I feel tired today
           </label>
           <label>
             Planning start
-            <input type="time" value={form.planning_start} onChange={(event) => setForm({ ...form, planning_start: event.target.value })} />
+            <input type="time" value={form.planning_start} onChange={(event) => updateForm({ planning_start: event.target.value })} />
           </label>
           <label>
             Planning end
-            <input type="time" value={form.planning_end} onChange={(event) => setForm({ ...form, planning_end: event.target.value })} />
+            <input type="time" value={form.planning_end} onChange={(event) => updateForm({ planning_end: event.target.value })} />
           </label>
         </div>
 

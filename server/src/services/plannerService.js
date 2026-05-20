@@ -70,6 +70,7 @@ export async function createTask(input) {
     ...enriched,
     priority_level: parseInteger(input.priority_level, 3),
     remaining_duration_minutes: enriched.estimated_duration_minutes,
+    task_date: input.task_date || deriveTaskDate(input),
     deadline: input.deadline || null,
     status: 'pending',
     is_completed: false,
@@ -264,6 +265,12 @@ function findFixedConflict(existingTasks, newTask) {
     const currentEnd = `${task.fixed_date}T${task.fixed_end_time}:00`;
     return newStart < currentEnd && newEnd > currentStart;
   });
+}
+
+function deriveTaskDate(input) {
+  if (input.is_fixed_time && input.fixed_date) return input.fixed_date;
+  if (input.deadline) return String(input.deadline).slice(0, 10);
+  return null;
 }
 
 function latestRecord(records, field = 'created_at') {

@@ -31,10 +31,11 @@ export const plannerApi = {
   getTasks(userId) {
     return request(`/api/tasks?userId=${userId}`);
   },
-  generateSchedule(userId) {
+  generateSchedule(input) {
+    const payload = typeof input === 'string' ? { user_id: input } : input;
     return request('/api/schedules/generate', {
       method: 'POST',
-      body: JSON.stringify({ user_id: userId })
+      body: JSON.stringify(payload)
     });
   },
   submitFeedback(payload) {

@@ -26,7 +26,12 @@ export function generateDailySchedule({
   const breakMinutes = chooseBreakMinutes(preferences?.break_duration_minutes || 10, feedbackContext);
 
   const fixedTasks = tasks
-    .filter((task) => !task.is_completed && task.status !== 'completed' && task.is_fixed_time && task.fixed_date === targetDate)
+    .filter((task) => (
+      !task.is_completed &&
+      task.status !== 'completed' &&
+      task.is_fixed_time &&
+      dateOnly(task.fixed_date) === targetDate
+    ))
     .map((task) => normalizeFixedTask(task, targetDate, planningStart))
     .filter((task) => new Date(task.end_time) > planningStart)
     .sort((a, b) => new Date(a.start_time) - new Date(b.start_time));
@@ -38,7 +43,13 @@ export function generateDailySchedule({
   );
 
   const flexibleTasks = tasks
-    .filter((task) => !task.is_completed && task.status !== 'completed' && !task.is_fixed_time)
+    .filter((task) => {
+      const taskDate = dateOnly(task.task_date);
+      return !task.is_completed &&
+        task.status !== 'completed' &&
+        !task.is_fixed_time &&
+        (!taskDate || taskDate === targetDate);
+    })
     .map((task) => enrichFlexibleTask(task, feedback))
     .sort((a, b) => scoreTask(b, rescheduleEnergy) - scoreTask(a, rescheduleEnergy));
 
@@ -246,6 +257,12 @@ function energyLabel(value) {
 
 function combineDateAndTime(date, time) {
   return new Date(`${date}T${time}:00`);
+}
+
+function dateOnly(value) {
+  if (!value) return null;
+  if (value instanceof Date) return value.toISOString().slice(0, 10);
+  return String(value).slice(0, 10);
 }
 
 function addMinutes(date, minutes) {

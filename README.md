@@ -529,6 +529,13 @@ git switch -c first-version
 - The menu now closes after the user selects a menu item.
 - Increased the project title size in the header for better visibility.
 - Updated the menu behavior so opening it shifts the dashboard content to the right instead of covering the dashboard.
+- Replaced the selected-day placeholder with a real selected day input page.
+- The selected day page reuses the existing Daily Check-In and Task containers.
+- Daily Check-In is now saved with the selected day date.
+- Tasks can now be connected to a selected day using `task_date`.
+- Fixed-time tasks on the selected day automatically use that selected date and only ask for start and end time.
+- Added a `Generate Daily Schedule` button that saves selected-day input, runs scheduling, and navigates to a generated-result placeholder.
+- Added `task_date` support to the backend task model and database schema.
 
 ### 2026-05-19
 - Added registration-first flow before opening the main planner.
