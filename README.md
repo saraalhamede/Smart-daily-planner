@@ -523,6 +523,13 @@ git switch -c first-version
 
 ## Development Change Log
 
+### 2026-05-20
+- Added the project name `Smart Day Planner` at the beginning of the header.
+- Improved the hamburger menu user experience by changing it from a full sliding sidebar to a compact floating menu.
+- The menu now closes after the user selects a menu item.
+- Increased the project title size in the header for better visibility.
+- Updated the menu behavior so opening it shifts the dashboard content to the right instead of covering the dashboard.
+
 ### 2026-05-19
 - Added registration-first flow before opening the main planner.
 - Added user profile menu with view information, edit information, profile picture upload, and logout.

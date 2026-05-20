@@ -29,11 +29,20 @@ export function Layout({
   const currentYear = new Date().getFullYear();
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${isMenuOpen ? 'menu-open' : ''}`}>
       <header className="topbar">
-        <button className="icon-button" type="button" onClick={() => setIsMenuOpen((value) => !value)} aria-label="Open menu">
+        <button
+          className="icon-button"
+          type="button"
+          onClick={() => setIsMenuOpen((value) => !value)}
+          aria-label="Open menu"
+          aria-expanded={isMenuOpen}>
           <Menu size={26} />
         </button>
+        <div className="project-title">
+          <strong>Smart Day Planner</strong>
+          <small>Dynamic planning system</small>
+        </div>
         <div className="brand-block">
           <strong>{monthWeek?.label || 'Current Week'}</strong>
         </div>
@@ -85,7 +94,12 @@ export function Layout({
               className="sidebar-item"
               type="button"
               key={item.label}
-              onClick={item.label === 'Calendar' ? onOpenPlanner : undefined}>
+              onClick={() => {
+                if (item.label === 'Calendar') {
+                  onOpenPlanner?.();
+                }
+                setIsMenuOpen(false);
+              }}>
               <Icon size={22} />
               <span>
                 <strong>{item.label}</strong>
@@ -100,7 +114,7 @@ export function Layout({
         {message ? <div className="status-banner">{message}</div> : null}
         {children}
         <footer className="app-footer">
-          <strong>© {currentYear} Smart Day Planner. All rights reserved.</strong>
+          <strong>Copyright {currentYear} Smart Day Planner. All rights reserved.</strong>
           <span>Sara Alhamede & Amina Alfrahen</span>
           <span>Computer Science Department, Sapir Academic College</span>
         </footer>
