@@ -1,8 +1,9 @@
-import { Bot, CalendarDays, Edit3, Eye, LogOut, Menu, Settings, Sparkles } from 'lucide-react';
+import { Bot, CalendarDays, Edit3, Eye, LayoutDashboard, LogOut, Menu, Settings, Sparkles } from 'lucide-react';
 import { useState } from 'react';
 
 const navItems = [
-  { label: 'Calendar', detail: 'Weekly dashboard', icon: CalendarDays },
+  { label: 'Calendar', detail: 'Monthly overview', icon: CalendarDays, action: 'calendar' },
+  { label: 'Weekly Dashboard', detail: 'Current week', icon: LayoutDashboard, action: 'weekly' },
   { label: 'AI Notes', detail: 'Smart insights', icon: Bot },
   { label: 'Progress', detail: 'Feedback loop', icon: Sparkles },
   { label: 'Settings', detail: 'Preferences', icon: Settings }
@@ -17,6 +18,7 @@ export function Layout({
   onLogout,
   onOpenAbout,
   onOpenPlanner,
+  onOpenCalendar,
   children
 }) {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -95,7 +97,10 @@ export function Layout({
               type="button"
               key={item.label}
               onClick={() => {
-                if (item.label === 'Calendar') {
+                if (item.action === 'calendar') {
+                  onOpenCalendar?.();
+                }
+                if (item.action === 'weekly') {
                   onOpenPlanner?.();
                 }
                 setIsMenuOpen(false);

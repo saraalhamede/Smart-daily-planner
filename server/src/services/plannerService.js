@@ -29,6 +29,7 @@ export async function getBootstrap(userId) {
   return {
     user,
     preferences,
+    daily_logs: dailyLogs,
     latest_daily_log: latestRecord(dailyLogs),
     tasks,
     latest_schedule: latestSchedule,

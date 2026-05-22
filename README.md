@@ -575,6 +575,9 @@ git switch -c first-version
 - Added multi-day deadline continuation so one task can appear dynamically from its start day until its deadline without duplicating task data.
 - Deadline tasks now show waiting/overdue labels such as `2 days left`, `Deadline today`, and `Overdue`.
 - Completing or removing a deadline task locally prevents it from appearing again in future waiting lists during the current session.
+- Added a separate monthly `Calendar` page from the sidebar, independent from the Weekly Dashboard.
+- The Calendar page now shows month navigation, productivity colors, day indicators, deadline strips, filters, today highlight, and a compact monthly summary.
+- Bootstrap now returns all daily logs so the Calendar can display month-level mood/stress and AI insight indicators.
 
 ### 2026-05-19
 - Added registration-first flow before opening the main planner.

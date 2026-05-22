@@ -2,7 +2,10 @@ import { useEffect, useState } from 'react';
 import {
   ArrowLeft,
   CalendarClock,
+  CalendarDays,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   Clock3,
   Database,
   Flame,
@@ -38,6 +41,7 @@ export function App() {
   const [localUser, setLocalUser] = useState(() => readRegisteredUser());
   const [profileMode, setProfileMode] = useState(null);
   const [currentPage, setCurrentPage] = useState('weekly');
+  const [detailsBackPage, setDetailsBackPage] = useState('weekly');
   const [selectedDay, setSelectedDay] = useState(null);
   const [selectedDayTasks, setSelectedDayTasks] = useState({});
   const [bootstrap, setBootstrap] = useState(null);
@@ -158,6 +162,7 @@ export function App() {
     setLocalUser(null);
     setProfileMode(null);
     setCurrentPage('weekly');
+    setDetailsBackPage('weekly');
     setSelectedDay(null);
     setSelectedDayTasks({});
     setBootstrap(null);
@@ -180,6 +185,7 @@ export function App() {
       onViewProfile={() => setProfileMode('view')}
       onLogout={handleLogout}
       onOpenAbout={() => setCurrentPage('about')}
+      onOpenCalendar={() => setCurrentPage('calendar')}
       onOpenPlanner={() => setCurrentPage('weekly')}>
       <main className="workspace">
         {profileMode ? (
@@ -193,6 +199,18 @@ export function App() {
 
         {currentPage === 'about' ? (
           <AboutPage onBack={() => setCurrentPage('weekly')} />
+        ) : currentPage === 'calendar' ? (
+          <CalendarPage
+            tasks={tasks}
+            scheduleItems={scheduleItems}
+            dailyLogs={bootstrap?.daily_logs || []}
+            isLoading={isLoading}
+            onSelectDay={(day) => {
+              setSelectedDay(day);
+              setDetailsBackPage('calendar');
+              setCurrentPage('generated');
+            }}
+          />
         ) : currentPage === 'weekly' ? (
           <WeeklyDashboard
             tasks={tasks}
@@ -201,6 +219,7 @@ export function App() {
             isLoading={isLoading}
             onSelectDay={(day) => {
               setSelectedDay(day);
+              setDetailsBackPage('weekly');
               setCurrentPage(
                 isPastDayKey(day.key) || hasGeneratedPlanForDay(day.key, schedule, scheduleItems, tasks)
                   ? 'generated'
@@ -228,7 +247,8 @@ export function App() {
             tasks={tasks}
             latestLog={bootstrap?.latest_daily_log}
             onBack={() => setCurrentPage('day')}
-            onWeekly={() => setCurrentPage('weekly')}
+            onWeekly={() => setCurrentPage(detailsBackPage)}
+            overviewBackLabel={detailsBackPage === 'calendar' ? 'Back to calendar' : 'Back to weekly dashboard'}
             onTaskStatusChange={(taskId, updates) => {
               if (!taskId) return;
               setTasks((currentTasks) => currentTasks.map((task) => (
@@ -475,6 +495,147 @@ function WeeklyDashboard({ tasks, scheduleItems, latestLog, isLoading, onSelectD
   );
 }
 
+function CalendarPage({ tasks = [], scheduleItems = [], dailyLogs = [], isLoading, onSelectDay }) {
+  const [visibleMonth, setVisibleMonth] = useState(() => new Date());
+  const [filters, setFilters] = useState({
+    tasks: true,
+    productivity: true,
+    mood: true,
+    deadlines: true,
+    meetings: true,
+    ai: true
+  });
+  const calendarData = buildCalendarMonthData({ visibleMonth, tasks, scheduleItems, dailyLogs });
+
+  function moveMonth(direction) {
+    setVisibleMonth((current) => new Date(current.getFullYear(), current.getMonth() + direction, 1));
+  }
+
+  function toggleFilter(name) {
+    setFilters((current) => ({ ...current, [name]: !current[name] }));
+  }
+
+  if (isLoading) {
+    return <div className="empty-state">Loading calendar...</div>;
+  }
+
+  return (
+    <section className="calendar-page">
+      <div className="calendar-hero">
+        <div>
+          <p className="eyebrow">Monthly Calendar</p>
+          <h1>{calendarData.monthLabel}</h1>
+          <span className="toolbar-copy">Track productivity, deadlines, mood, and task progress across the month.</span>
+        </div>
+        <div className="calendar-nav">
+          <button type="button" onClick={() => moveMonth(-1)} aria-label="Previous month">
+            <ChevronLeft size={18} />
+          </button>
+          <button type="button" onClick={() => setVisibleMonth(new Date())}>
+            Today
+          </button>
+          <button type="button" onClick={() => moveMonth(1)} aria-label="Next month">
+            <ChevronRight size={18} />
+          </button>
+        </div>
+      </div>
+
+      {calendarData.isNewUser ? (
+        <div className="new-user-note">
+          <strong>No activity yet</strong>
+          <span>Start adding tasks and daily check-ins to see your monthly progress.</span>
+        </div>
+      ) : null}
+
+      <div className="calendar-layout">
+        <aside className="month-summary-card">
+          <div className="section-title-row">
+            <div>
+              <p className="eyebrow">Month Summary</p>
+              <h2>Progress Overview</h2>
+            </div>
+            <CalendarDays size={30} />
+          </div>
+          <div className="month-summary-grid">
+            <article>
+              <strong>{calendarData.summary.completedTasks}</strong>
+              <span>Completed tasks</span>
+            </article>
+            <article>
+              <strong>{calendarData.summary.averageProductivity}%</strong>
+              <span>Productivity average</span>
+            </article>
+            <article>
+              <strong>{calendarData.summary.bestDay}</strong>
+              <span>Most productive day</span>
+            </article>
+            <article>
+              <strong>{calendarData.summary.currentStreak}</strong>
+              <span>Current streak</span>
+            </article>
+            <article>
+              <strong>{calendarData.summary.focusHours}h</strong>
+              <span>Total focus hours</span>
+            </article>
+          </div>
+        </aside>
+
+        <section className="calendar-board-card">
+          <div className="calendar-filter-row" aria-label="Calendar filters">
+            {calendarData.filterOptions.map((filter) => (
+              <button
+                className={filters[filter.key] ? 'active' : ''}
+                type="button"
+                key={filter.key}
+                onClick={() => toggleFilter(filter.key)}>
+                <span>{filter.icon}</span>
+                {filter.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="calendar-weekdays" aria-hidden="true">
+            {calendarData.weekdays.map((weekday) => <span key={weekday}>{weekday}</span>)}
+          </div>
+
+          <div className="month-grid">
+            {calendarData.days.map((day) => (
+              <button
+                className={`month-day-card ${day.isCurrentMonth ? '' : 'outside'} ${day.productivityTone} ${day.isToday ? 'today' : ''}`}
+                type="button"
+                key={day.key}
+                onClick={() => onSelectDay(day)}>
+                <span className="month-day-head">
+                  <strong>{day.dayNumber}</strong>
+                  {day.isToday ? <em>Today</em> : null}
+                </span>
+
+                {filters.productivity ? (
+                  <span className="mini-progress" aria-label={`${day.progress}% productivity`}>
+                    <i style={{ width: `${day.progress}%` }}></i>
+                  </span>
+                ) : null}
+
+                <span className="calendar-indicators">
+                  {filters.tasks && day.taskCount > 0 ? <small title="Tasks exist">T{day.taskCount}</small> : null}
+                  {filters.deadlines && day.deadlineCount > 0 ? <small title="Deadline exists">D{day.deadlineCount}</small> : null}
+                  {filters.meetings && day.meetingCount > 0 ? <small title="Meeting exists">M</small> : null}
+                  {filters.mood && day.highStress ? <small className="stress" title="High stress">S</small> : null}
+                  {filters.ai && day.hasAiInsight ? <small className="ai" title="AI insight exists">AI</small> : null}
+                </span>
+
+                {filters.deadlines && day.deadlineCount > 0 ? (
+                  <span className={`deadline-strip ${day.deadlineTone || ''}`} aria-hidden="true"></span>
+                ) : null}
+              </button>
+            ))}
+          </div>
+        </section>
+      </div>
+    </section>
+  );
+}
+
 function SelectedDayInputPage({
   day,
   onBack,
@@ -617,7 +778,17 @@ function SelectedDayInputPage({
   );
 }
 
-function DailyDetailsPage({ day, schedule, items = [], tasks = [], latestLog, onBack, onWeekly, onTaskStatusChange }) {
+function DailyDetailsPage({
+  day,
+  schedule,
+  items = [],
+  tasks = [],
+  latestLog,
+  onBack,
+  onWeekly,
+  overviewBackLabel = 'Back to weekly dashboard',
+  onTaskStatusChange
+}) {
   const dayKey = day?.key || datePart(schedule?.schedule_date) || toDateKey(new Date());
   const isReviewMode = isPastDayKey(dayKey);
   const [detailItems, setDetailItems] = useState(() => initializeDailyDetailItems({ day, schedule, items, tasks }));
@@ -1029,7 +1200,7 @@ function DailyDetailsPage({ day, schedule, items = [], tasks = [], latestLog, on
         </div>
         <button className="text-action compact" type="button" onClick={onWeekly}>
           <ArrowLeft size={16} />
-          Back to weekly dashboard
+          {overviewBackLabel}
         </button>
       </div>
 
@@ -2159,6 +2330,175 @@ function buildWeeklyDashboardData({ tasks = [], scheduleItems = [], latestLog, w
           : 'Try to complete more tasks tomorrow'
     }
   };
+}
+
+function buildCalendarMonthData({ visibleMonth, tasks = [], scheduleItems = [], dailyLogs = [] }) {
+  const monthDate = new Date(visibleMonth.getFullYear(), visibleMonth.getMonth(), 1);
+  const monthKey = toMonthKey(monthDate);
+  const todayKey = toDateKey(new Date());
+  const calendarDays = getMonthCalendarDays(monthDate);
+  const dailyLogByDay = new Map(dailyLogs.map((log) => [datePart(log.log_date), log]));
+  const scheduleItemsByDay = new Map();
+  const scheduledDatesByTask = new Map();
+
+  scheduleItems.forEach((item) => {
+    const itemDayKey = datePart(item.start_time);
+    if (!itemDayKey) return;
+
+    if (!scheduleItemsByDay.has(itemDayKey)) {
+      scheduleItemsByDay.set(itemDayKey, []);
+    }
+    scheduleItemsByDay.get(itemDayKey).push(item);
+
+    if (item.task_id) {
+      const dates = scheduledDatesByTask.get(item.task_id) || new Set();
+      dates.add(itemDayKey);
+      scheduledDatesByTask.set(item.task_id, dates);
+    }
+  });
+
+  const days = calendarDays.map((day) => {
+    const dayTasks = tasks.filter((task) => isCalendarTaskVisibleOnDay(task, day.key, scheduledDatesByTask));
+    const dayScheduleItems = scheduleItemsByDay.get(day.key) || [];
+    const dailyLog = dailyLogByDay.get(day.key);
+    const totalTasks = dayTasks.length || dayScheduleItems.length;
+    const completedTasks = dayTasks.filter(isTaskCompleted).length;
+    const progress = totalTasks ? Math.round((completedTasks / totalTasks) * 100) : 0;
+    const deadlineTasks = dayTasks.filter((task) => task.deadline && !isTaskCompleted(task));
+    const deadlineTone = getStrongestDeadlineTone(deadlineTasks.map((task) => getDeadlineState(task, day.key).tone));
+    const hasData = totalTasks > 0 || dayScheduleItems.length > 0 || Boolean(dailyLog);
+
+    return {
+      ...day,
+      isToday: day.key === todayKey,
+      taskCount: totalTasks,
+      completedTasks,
+      progress,
+      productivityTone: getCalendarProductivityTone(progress, hasData),
+      deadlineCount: deadlineTasks.length,
+      deadlineTone,
+      meetingCount: countMeetings(dayTasks, dayScheduleItems),
+      highStress: Number.parseInt(dailyLog?.stress_level, 10) >= 4,
+      hasAiInsight: Boolean(dailyLog?.detected_emotion || dailyLog?.predicted_energy_level),
+      hasData
+    };
+  });
+
+  const currentMonthDays = days.filter((day) => day.isCurrentMonth);
+  const productiveDays = currentMonthDays.filter((day) => day.taskCount > 0);
+  const completedTasksThisMonth = tasks.filter((task) => {
+    if (!isTaskCompleted(task)) return false;
+    const completedKey = getTaskCompletionDayKey(task) || datePart(task.task_date) || datePart(task.deadline);
+    return completedKey?.startsWith(monthKey);
+  });
+  const averageProductivity = productiveDays.length
+    ? Math.round(productiveDays.reduce((sum, day) => sum + day.progress, 0) / productiveDays.length)
+    : 0;
+  const bestDay = productiveDays.sort((a, b) => b.progress - a.progress)[0];
+  const focusHours = completedTasksThisMonth.reduce((sum, task) => {
+    const minutes = Number.parseInt(task.actual_duration_minutes || task.estimated_duration_minutes, 10);
+    return sum + (Number.isNaN(minutes) ? 0 : minutes);
+  }, 0);
+
+  return {
+    monthLabel: new Intl.DateTimeFormat('en', { month: 'long', year: 'numeric' }).format(monthDate),
+    weekdays: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'],
+    filterOptions: [
+      { key: 'tasks', label: 'Tasks', icon: 'T' },
+      { key: 'productivity', label: 'Productivity', icon: 'P' },
+      { key: 'mood', label: 'Mood', icon: 'M' },
+      { key: 'deadlines', label: 'Deadlines', icon: 'D' },
+      { key: 'meetings', label: 'Meetings', icon: 'C' },
+      { key: 'ai', label: 'AI Insights', icon: 'AI' }
+    ],
+    days,
+    isNewUser: tasks.length === 0 && scheduleItems.length === 0 && dailyLogs.length === 0,
+    summary: {
+      completedTasks: completedTasksThisMonth.length,
+      averageProductivity,
+      bestDay: bestDay ? `${bestDay.dayName} ${bestDay.shortDate}` : 'No data',
+      currentStreak: getCurrentStreak(currentMonthDays),
+      focusHours: Math.round((focusHours / 60) * 10) / 10
+    }
+  };
+}
+
+function getMonthCalendarDays(monthDate) {
+  const year = monthDate.getFullYear();
+  const month = monthDate.getMonth();
+  const firstDay = new Date(year, month, 1);
+  const gridStart = new Date(year, month, 1 - firstDay.getDay());
+
+  return Array.from({ length: 42 }, (_, index) => {
+    const date = new Date(gridStart);
+    date.setDate(gridStart.getDate() + index);
+    return {
+      date,
+      key: toDateKey(date),
+      dayNumber: date.getDate(),
+      dayName: new Intl.DateTimeFormat('en', { weekday: 'short' }).format(date),
+      shortDate: `${String(date.getDate()).padStart(2, '0')}/${String(date.getMonth() + 1).padStart(2, '0')}`,
+      isCurrentMonth: date.getMonth() === month
+    };
+  });
+}
+
+function isCalendarTaskVisibleOnDay(task, dayKey, scheduledDatesByTask) {
+  if (!task || isTaskArchived(task)) return false;
+
+  const scheduledDates = scheduledDatesByTask.get(task.task_id);
+  if (isTaskCompleted(task)) {
+    const completedKey = getTaskCompletionDayKey(task);
+    return completedKey ? completedKey === dayKey : scheduledDates?.has(dayKey) || datePart(task.task_date) === dayKey;
+  }
+
+  if (task.is_fixed_time) {
+    return datePart(task.fixed_date) === dayKey;
+  }
+
+  if (task.deadline) {
+    return shouldDisplayDeadlineTaskOnDay(task, dayKey);
+  }
+
+  return datePart(task.task_date) === dayKey || scheduledDates?.has(dayKey);
+}
+
+function getCalendarProductivityTone(progress, hasData) {
+  if (!hasData) return 'neutral';
+  if (progress >= 75) return 'high';
+  if (progress >= 50) return 'medium';
+  return 'low';
+}
+
+function getStrongestDeadlineTone(tones) {
+  const priority = ['overdue', 'due', 'close', 'warning', 'early'];
+  return priority.find((tone) => tones.includes(tone)) || '';
+}
+
+function countMeetings(dayTasks, dayScheduleItems) {
+  const fixedTaskIds = new Set(dayTasks.filter((task) => task.is_fixed_time).map((task) => task.task_id));
+  const fixedScheduleItems = dayScheduleItems.filter((item) => item.task_kind === 'fixed' && !fixedTaskIds.has(item.task_id));
+  return fixedTaskIds.size + fixedScheduleItems.length;
+}
+
+function getCurrentStreak(days) {
+  const sortedDays = [...days].sort((a, b) => a.key.localeCompare(b.key));
+  const todayKey = toDateKey(new Date());
+  const startIndex = sortedDays.findIndex((day) => day.key === todayKey);
+  let index = startIndex >= 0 ? startIndex : sortedDays.length - 1;
+  let streak = 0;
+
+  while (index >= 0) {
+    if (sortedDays[index].completedTasks <= 0) break;
+    streak += 1;
+    index -= 1;
+  }
+
+  return streak;
+}
+
+function toMonthKey(date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
 }
 
 function getTaskWeekDateKey(task, scheduleDateByTask, weekKeys) {
