@@ -585,6 +585,7 @@ function DailyDetailsPage({ day, schedule, items = [], tasks = [], latestLog, on
   const [editDraft, setEditDraft] = useState(null);
   const [activeTaskUi, setActiveTaskUi] = useState({});
   const [selectedCompletedItemId, setSelectedCompletedItemId] = useState(null);
+  const [restoreMenuItemId, setRestoreMenuItemId] = useState(null);
   const details = splitDailyDetailItems(detailItems, latestLog);
   const currentTaskId = details.currentTask ? getDetailItemId(details.currentTask) : null;
   const currentTaskUi = details.currentTask
@@ -603,6 +604,7 @@ function DailyDetailsPage({ day, schedule, items = [], tasks = [], latestLog, on
     setEditDraft(null);
     setActiveTaskUi({});
     setSelectedCompletedItemId(null);
+    setRestoreMenuItemId(null);
   }, [dayKey, schedule?.schedule_id, items, tasks]);
 
   useEffect(() => {
@@ -824,6 +826,40 @@ function DailyDetailsPage({ day, schedule, items = [], tasks = [], latestLog, on
     cancelEdit();
   }
 
+  function toggleRestoreMenu(item) {
+    const itemId = getDetailItemId(item);
+    setRestoreMenuItemId((currentId) => (currentId === itemId ? null : itemId));
+  }
+
+  function restoreCompletedTask(item, targetStatus) {
+    const itemId = getDetailItemId(item);
+    const restoreTime = new Date().toISOString();
+
+    if (targetStatus === 'in_progress') {
+      const activeTask = detailItems.find((detailItem) => detailItem.status === 'in_progress');
+      if (activeTask && getDetailItemId(activeTask) !== itemId) {
+        setNotice('Finish or return the current task before restoring another task to In Progress.');
+        setRestoreMenuItemId(null);
+        return;
+      }
+    }
+
+    setDetailItems((currentItems) => currentItems.map((detailItem) => {
+      if (getDetailItemId(detailItem) !== itemId) return detailItem;
+      return {
+        ...detailItem,
+        status: targetStatus,
+        restored_at: restoreTime,
+        started_at: targetStatus === 'in_progress' ? restoreTime : detailItem.started_at
+      };
+    }));
+    setRestoreMenuItemId(null);
+    setSelectedCompletedItemId((currentId) => (currentId === itemId ? null : currentId));
+    setNotice(targetStatus === 'in_progress'
+      ? 'Completed task restored to Task In Progress.'
+      : 'Completed task restored to Waiting Tasks.');
+  }
+
   return (
     <section className="daily-details-page">
       <div className="daily-details-hero">
@@ -896,7 +932,10 @@ function DailyDetailsPage({ day, schedule, items = [], tasks = [], latestLog, on
                   <CompletedTaskCard
                     item={item}
                     key={getDetailItemId(item)}
+                    isRestoreOpen={restoreMenuItemId === getDetailItemId(item)}
                     onOpen={() => setSelectedCompletedItemId(getDetailItemId(item))}
+                    onToggleRestore={() => toggleRestoreMenu(item)}
+                    onRestore={(targetStatus) => restoreCompletedTask(item, targetStatus)}
                   />
                 ))}
               </div>
@@ -1022,25 +1061,44 @@ function DailyDetailsCardHeader({ icon: Icon, eyebrow, title }) {
   );
 }
 
-function CompletedTaskCard({ item, onOpen }) {
+function CompletedTaskCard({ item, isRestoreOpen, onOpen, onToggleRestore, onRestore }) {
   const evaluation = buildCompletedTaskEvaluation(item);
 
   return (
-    <button className="completed-task-card" type="button" onClick={onOpen}>
-      <div className="completed-task-main">
-        <div>
-          <strong>{item.title}</strong>
-          <span>{formatTimeRange(item.start_time, item.end_time)}</span>
+    <article className="completed-task-card">
+      <button className="completed-task-open" type="button" onClick={onOpen}>
+        <div className="completed-task-main">
+          <div>
+            <strong>{item.title}</strong>
+            <span>{formatTimeRange(item.start_time, item.end_time)}</span>
+          </div>
+          <em>Completed</em>
         </div>
-        <em>Completed</em>
+        <div className="completed-task-stats">
+          <span><strong>Planned</strong>{evaluation.plannedLabel}</span>
+          <span><strong>Actual</strong>{evaluation.actualLabel}</span>
+          <span><strong>Completed</strong>{formatTime(item.completed_at || item.end_time)}</span>
+        </div>
+        <p className={`task-evaluation-message ${evaluation.tone}`}>{evaluation.message}</p>
+      </button>
+
+      <div className="restore-task-area">
+        <button className="restore-task-button" type="button" onClick={onToggleRestore}>
+          <RefreshCw size={14} />
+          Restore Task
+        </button>
+        {isRestoreOpen ? (
+          <div className="restore-task-menu">
+            <button type="button" onClick={() => onRestore?.('in_progress')}>
+              Return to In Progress
+            </button>
+            <button type="button" onClick={() => onRestore?.('waiting')}>
+              Return to Waiting
+            </button>
+          </div>
+        ) : null}
       </div>
-      <div className="completed-task-stats">
-        <span><strong>Planned</strong>{evaluation.plannedLabel}</span>
-        <span><strong>Actual</strong>{evaluation.actualLabel}</span>
-        <span><strong>Completed</strong>{formatTime(item.completed_at || item.end_time)}</span>
-      </div>
-      <p className={`task-evaluation-message ${evaluation.tone}`}>{evaluation.message}</p>
-    </button>
+    </article>
   );
 }
 
