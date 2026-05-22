@@ -5,7 +5,7 @@ const navItems = [
   { label: 'Calendar', detail: 'Monthly overview', icon: CalendarDays, action: 'calendar' },
   { label: 'Weekly Dashboard', detail: 'Current week', icon: LayoutDashboard, action: 'weekly' },
   { label: 'AI Notes', detail: 'Smart insights', icon: Bot },
-  { label: 'Progress', detail: 'Feedback loop', icon: Sparkles },
+  { label: 'Progress', detail: 'Feedback loop', icon: Sparkles, action: 'progress' },
   { label: 'Settings', detail: 'Preferences', icon: Settings }
 ];
 
@@ -20,6 +20,8 @@ export function Layout({
   onOpenPlanner,
   onOpenCalendar,
   onOpenAiNotes,
+  onOpenSettings,
+  onOpenProgress,
   children
 }) {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -106,6 +108,12 @@ export function Layout({
                 }
                 if (item.label === 'AI Notes') {
                   onOpenAiNotes?.();
+                }
+                if (item.label === 'Settings') {
+                  onOpenSettings?.();
+                }
+                if (item.action === 'progress') {
+                  onOpenProgress?.();
                 }
                 setIsMenuOpen(false);
               }}>

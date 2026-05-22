@@ -581,6 +581,12 @@ git switch -c first-version
 - Added a separate `AI Notes` dashboard page from the sidebar.
 - AI Notes now shows daily/weekly/monthly insight modes, KPI cards, productivity insights, energy patterns, mood/stress trends, time-management comparisons, focus recommendations, and adaptive scheduler suggestions.
 - The AI Notes page uses analytics-style cards and mini charts instead of a chatbot layout.
+- Added a separate `Settings` dashboard page from the sidebar.
+- Settings now includes Profile, Schedule Preferences, Notifications, AI Preferences, Appearance, Privacy & Data, and System sections.
+- Settings are saved to local storage, keep user changes after refresh, and profile settings update the header user information.
+- Added a separate `Progress / Feedback Loop` dashboard page from the sidebar.
+- Progress now shows daily/weekly/monthly filters, productivity score cards, task completion trends, planned vs actual time, feedback before/after impact, energy and stress trends, and a smart learning summary.
+- The Progress page explains how feedback improves future scheduling and how the system learns from user behavior.
 
 ### 2026-05-19
 - Added registration-first flow before opening the main planner.

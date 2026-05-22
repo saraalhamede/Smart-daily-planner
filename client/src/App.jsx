@@ -13,6 +13,7 @@ import {
   Flame,
   ListChecks,
   Lock,
+  Palette,
   Pencil,
   PlayCircle,
   RefreshCw,
@@ -21,7 +22,11 @@ import {
   Sparkles,
   Target,
   TrendingUp,
-  Trash2
+  Trash2,
+  Bell,
+  UserRound,
+  BarChart3,
+  Activity
 } from 'lucide-react';
 import { plannerApi } from './api/plannerApi.js';
 import { DailyCheckIn } from './components/DailyCheckIn.jsx';
@@ -33,11 +38,68 @@ import { TaskList } from './components/TaskList.jsx';
 
 const userId = 'user_demo';
 const registrationKey = 'smartPlannerRegisteredUser';
+const settingsKey = 'smartPlannerSettings';
 const defaultLocalUser = {
   first_name: 'Sara',
   last_name: 'Alhamede',
   email: 'sara@smart-planner.local',
   profile_image: ''
+};
+const defaultSettings = {
+  profile: {
+    display_name: 'Sara Alhamede',
+    email: 'sara@smart-planner.local',
+    password: '',
+    bio: '',
+    mode: 'Student'
+  },
+  schedule: {
+    wake_up_time: '07:00',
+    sleep_time: '22:30',
+    work_start: '09:00',
+    work_end: '18:00',
+    break_duration: 15,
+    focus_length: 60,
+    planning_start: '07:00',
+    planning_end: '22:30'
+  },
+  notifications: {
+    task_reminders: true,
+    deadline_reminders: true,
+    daily_checkin: true,
+    break_reminders: true,
+    schedule_generation: false,
+    weekly_summary: true,
+    sound: true,
+    silent_start: '22:00',
+    silent_end: '07:00'
+  },
+  ai: {
+    recommendations: true,
+    notes_frequency: 'Weekly',
+    adaptive_scheduling: true,
+    daily_summary: true,
+    feedback_adaptation: true,
+    personality: 'Friendly'
+  },
+  appearance: {
+    mode: 'Light',
+    theme: 'Blue / Teal',
+    density: 'Comfortable',
+    font_size: 'Medium',
+    layout: 'Dashboard'
+  },
+  privacy: {
+    privacy_mode: false,
+    ai_data_usage: true,
+    resource_management: true
+  },
+  system: {
+    language: 'English',
+    time_format: '24h',
+    first_day: 'Sunday',
+    timezone: 'Asia/Jerusalem'
+  }
 };
 
 export function App() {
@@ -45,6 +107,7 @@ export function App() {
   const [profileMode, setProfileMode] = useState(null);
   const [currentPage, setCurrentPage] = useState('weekly');
   const [detailsBackPage, setDetailsBackPage] = useState('weekly');
+  const [plannerSettings, setPlannerSettings] = useState(() => readPlannerSettings());
   const [selectedDay, setSelectedDay] = useState(null);
   const [selectedDayTasks, setSelectedDayTasks] = useState({});
   const [bootstrap, setBootstrap] = useState(null);
@@ -190,6 +253,8 @@ export function App() {
       onOpenAbout={() => setCurrentPage('about')}
       onOpenCalendar={() => setCurrentPage('calendar')}
       onOpenAiNotes={() => setCurrentPage('ai-notes')}
+      onOpenSettings={() => setCurrentPage('settings')}
+      onOpenProgress={() => setCurrentPage('progress')}
       onOpenPlanner={() => setCurrentPage('weekly')}>
       <main className="workspace">
         {profileMode ? (
@@ -217,6 +282,27 @@ export function App() {
           />
         ) : currentPage === 'ai-notes' ? (
           <AiNotesPage
+            tasks={tasks}
+            scheduleItems={scheduleItems}
+            dailyLogs={bootstrap?.daily_logs || []}
+            latestLog={bootstrap?.latest_daily_log}
+            isLoading={isLoading}
+          />
+        ) : currentPage === 'settings' ? (
+          <SettingsPage
+            user={profileUser}
+            settings={plannerSettings}
+            onSave={(nextSettings, nextProfile) => {
+              setPlannerSettings(nextSettings);
+              localStorage.setItem(settingsKey, JSON.stringify(nextSettings));
+              if (nextProfile) {
+                handleRegister(nextProfile);
+              }
+              setMessage('Changes saved successfully.');
+            }}
+          />
+        ) : currentPage === 'progress' ? (
+          <ProgressPage
             tasks={tasks}
             scheduleItems={scheduleItems}
             dailyLogs={bootstrap?.daily_logs || []}
@@ -844,6 +930,501 @@ function DurationCompare({ planned, actual }) {
         Actual {actual}m
       </span>
     </div>
+  );
+}
+
+function SettingsPage({ user, settings, onSave }) {
+  const [draft, setDraft] = useState(() => mergeSettingsWithUser(settings, user));
+  const [sectionNote, setSectionNote] = useState('');
+
+  useEffect(() => {
+    setDraft(mergeSettingsWithUser(settings, user));
+  }, [settings, user]);
+
+  function updateSection(section, updates) {
+    setDraft((current) => ({
+      ...current,
+      [section]: {
+        ...current[section],
+        ...updates
+      }
+    }));
+  }
+
+  function saveChanges(event) {
+    event.preventDefault();
+    const nextProfile = buildProfileFromSettings(draft.profile, user);
+    onSave(draft, nextProfile);
+    setSectionNote('Changes saved successfully.');
+  }
+
+  function exportSettings() {
+    const blob = new Blob([JSON.stringify({ user, settings: draft }, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'smart-planner-settings.json';
+    link.click();
+    URL.revokeObjectURL(url);
+    setSectionNote('User settings exported.');
+  }
+
+  return (
+    <section className="settings-page">
+      <div className="settings-hero">
+        <div>
+          <p className="eyebrow">Settings</p>
+          <h1>Planner Preferences</h1>
+          <span className="toolbar-copy">Customize scheduling behavior, notifications, appearance, AI, privacy, and system settings.</span>
+        </div>
+        <button className="primary-action" type="button" onClick={saveChanges}>
+          Save Changes
+        </button>
+      </div>
+
+      {sectionNote ? <p className="settings-save-note">{sectionNote}</p> : null}
+
+      <form className="settings-grid" onSubmit={saveChanges}>
+        <SettingsCard icon={UserRound} title="Profile" eyebrow="Account">
+          <ProfileImageField
+            value={draft.profile.profile_image}
+            onChange={(profileImage) => updateSection('profile', { profile_image: profileImage })}
+          />
+          <div className="field-grid two">
+            <label>
+              Display name
+              <input
+                value={draft.profile.display_name}
+                onChange={(event) => updateSection('profile', { display_name: event.target.value })}
+              />
+            </label>
+            <label>
+              Email
+              <input
+                type="email"
+                value={draft.profile.email}
+                onChange={(event) => updateSection('profile', { email: event.target.value })}
+              />
+            </label>
+          </div>
+          <div className="field-grid two">
+            <label>
+              Password
+              <input
+                type="password"
+                placeholder="New password"
+                value={draft.profile.password}
+                onChange={(event) => updateSection('profile', { password: event.target.value })}
+              />
+            </label>
+            <label>
+              Mode
+              <select
+                value={draft.profile.mode}
+                onChange={(event) => updateSection('profile', { mode: event.target.value })}>
+                <option>Student</option>
+                <option>Work</option>
+                <option>Personal</option>
+              </select>
+            </label>
+          </div>
+          <label>
+            Short bio
+            <textarea
+              value={draft.profile.bio}
+              onChange={(event) => updateSection('profile', { bio: event.target.value })}
+              placeholder="A short note about your planning style"
+            />
+          </label>
+        </SettingsCard>
+
+        <SettingsCard icon={CalendarClock} title="Schedule Preferences" eyebrow="Planner rules">
+          <div className="field-grid two">
+            <label>
+              Wake-up time
+              <input type="time" value={draft.schedule.wake_up_time} onChange={(event) => updateSection('schedule', { wake_up_time: event.target.value })} />
+            </label>
+            <label>
+              Sleep time
+              <input type="time" value={draft.schedule.sleep_time} onChange={(event) => updateSection('schedule', { sleep_time: event.target.value })} />
+            </label>
+            <label>
+              Study/work start
+              <input type="time" value={draft.schedule.work_start} onChange={(event) => updateSection('schedule', { work_start: event.target.value })} />
+            </label>
+            <label>
+              Study/work end
+              <input type="time" value={draft.schedule.work_end} onChange={(event) => updateSection('schedule', { work_end: event.target.value })} />
+            </label>
+            <label>
+              Break duration
+              <input type="number" min="5" step="5" value={draft.schedule.break_duration} onChange={(event) => updateSection('schedule', { break_duration: event.target.value })} />
+            </label>
+            <label>
+              Focus session length
+              <input type="number" min="15" step="15" value={draft.schedule.focus_length} onChange={(event) => updateSection('schedule', { focus_length: event.target.value })} />
+            </label>
+            <label>
+              Planning start
+              <input type="time" value={draft.schedule.planning_start} onChange={(event) => updateSection('schedule', { planning_start: event.target.value })} />
+            </label>
+            <label>
+              Planning end
+              <input type="time" value={draft.schedule.planning_end} onChange={(event) => updateSection('schedule', { planning_end: event.target.value })} />
+            </label>
+          </div>
+        </SettingsCard>
+
+        <SettingsCard icon={Bell} title="Notifications" eyebrow="Reminders">
+          <div className="toggle-grid">
+            {[
+              ['task_reminders', 'Task reminders'],
+              ['deadline_reminders', 'Deadline reminders'],
+              ['daily_checkin', 'Daily check-in reminder'],
+              ['break_reminders', 'Break reminders'],
+              ['schedule_generation', 'Schedule generation reminder'],
+              ['weekly_summary', 'Weekly productivity summary'],
+              ['sound', 'Notification sound']
+            ].map(([key, label]) => (
+              <ToggleSetting
+                checked={draft.notifications[key]}
+                key={key}
+                label={label}
+                onChange={(checked) => updateSection('notifications', { [key]: checked })}
+              />
+            ))}
+          </div>
+          <div className="field-grid two">
+            <label>
+              Silent mode starts
+              <input type="time" value={draft.notifications.silent_start} onChange={(event) => updateSection('notifications', { silent_start: event.target.value })} />
+            </label>
+            <label>
+              Silent mode ends
+              <input type="time" value={draft.notifications.silent_end} onChange={(event) => updateSection('notifications', { silent_end: event.target.value })} />
+            </label>
+          </div>
+        </SettingsCard>
+
+        <SettingsCard icon={BrainCircuit} title="AI Preferences" eyebrow="Smart layer">
+          <div className="toggle-grid">
+            {[
+              ['recommendations', 'AI recommendations'],
+              ['adaptive_scheduling', 'Smart adaptive scheduling'],
+              ['daily_summary', 'Daily AI summary'],
+              ['feedback_adaptation', 'Feedback-based adaptation']
+            ].map(([key, label]) => (
+              <ToggleSetting
+                checked={draft.ai[key]}
+                key={key}
+                label={label}
+                onChange={(checked) => updateSection('ai', { [key]: checked })}
+              />
+            ))}
+          </div>
+          <div className="field-grid two">
+            <label>
+              AI notes frequency
+              <select value={draft.ai.notes_frequency} onChange={(event) => updateSection('ai', { notes_frequency: event.target.value })}>
+                <option>Daily</option>
+                <option>Weekly</option>
+                <option>Monthly</option>
+              </select>
+            </label>
+            <label>
+              AI personality style
+              <select value={draft.ai.personality} onChange={(event) => updateSection('ai', { personality: event.target.value })}>
+                <option>Motivational</option>
+                <option>Minimal</option>
+                <option>Strict</option>
+                <option>Friendly</option>
+              </select>
+            </label>
+          </div>
+        </SettingsCard>
+
+        <SettingsCard icon={Palette} title="Appearance" eyebrow="Interface">
+          <div className="field-grid two">
+            <label>
+              Mode
+              <select value={draft.appearance.mode} onChange={(event) => updateSection('appearance', { mode: event.target.value })}>
+                <option>Light</option>
+                <option>Dark</option>
+                <option>Auto</option>
+              </select>
+            </label>
+            <label>
+              Theme colors
+              <select value={draft.appearance.theme} onChange={(event) => updateSection('appearance', { theme: event.target.value })}>
+                <option>Blue / Teal</option>
+                <option>Calm Green</option>
+                <option>Warm Sunrise</option>
+                <option>Soft Purple</option>
+              </select>
+            </label>
+            <label>
+              UI density
+              <select value={draft.appearance.density} onChange={(event) => updateSection('appearance', { density: event.target.value })}>
+                <option>Comfortable</option>
+                <option>Compact</option>
+                <option>Spacious</option>
+              </select>
+            </label>
+            <label>
+              Font size
+              <select value={draft.appearance.font_size} onChange={(event) => updateSection('appearance', { font_size: event.target.value })}>
+                <option>Small</option>
+                <option>Medium</option>
+                <option>Large</option>
+              </select>
+            </label>
+          </div>
+        </SettingsCard>
+
+        <SettingsCard icon={ShieldCheck} title="Privacy & Data" eyebrow="Control">
+          <div className="toggle-grid">
+            <ToggleSetting
+              checked={draft.privacy.privacy_mode}
+              label="Privacy mode"
+              onChange={(checked) => updateSection('privacy', { privacy_mode: checked })}
+            />
+            <ToggleSetting
+              checked={draft.privacy.ai_data_usage}
+              label="Allow AI data usage for insights"
+              onChange={(checked) => updateSection('privacy', { ai_data_usage: checked })}
+            />
+            <ToggleSetting
+              checked={draft.privacy.resource_management}
+              label="Manage uploaded resources"
+              onChange={(checked) => updateSection('privacy', { resource_management: checked })}
+            />
+          </div>
+          <div className="settings-action-row">
+            <button type="button" onClick={exportSettings}>Export user data</button>
+            <button type="button" onClick={() => setSectionNote('Delete history will be connected to the database later.')}>Delete history</button>
+            <button type="button" onClick={() => setSectionNote('Completed task history cleanup will be connected later.')}>Clear completed tasks</button>
+          </div>
+        </SettingsCard>
+
+        <SettingsCard icon={SlidersHorizontal} title="System" eyebrow="Global">
+          <div className="field-grid two">
+            <label>
+              Language
+              <select value={draft.system.language} onChange={(event) => updateSection('system', { language: event.target.value })}>
+                <option>English</option>
+                <option>Hebrew</option>
+                <option>Arabic</option>
+              </select>
+            </label>
+            <label>
+              Time format
+              <select value={draft.system.time_format} onChange={(event) => updateSection('system', { time_format: event.target.value })}>
+                <option>24h</option>
+                <option>12h</option>
+              </select>
+            </label>
+            <label>
+              First day of week
+              <select value={draft.system.first_day} onChange={(event) => updateSection('system', { first_day: event.target.value })}>
+                <option>Sunday</option>
+                <option>Monday</option>
+              </select>
+            </label>
+            <label>
+              Timezone
+              <select value={draft.system.timezone} onChange={(event) => updateSection('system', { timezone: event.target.value })}>
+                <option>Asia/Jerusalem</option>
+                <option>UTC</option>
+                <option>Europe/London</option>
+                <option>America/New_York</option>
+              </select>
+            </label>
+          </div>
+        </SettingsCard>
+
+        <div className="settings-save-row">
+          <button className="primary-action" type="submit">Save Changes</button>
+        </div>
+      </form>
+    </section>
+  );
+}
+
+function ProgressPage({ tasks = [], scheduleItems = [], dailyLogs = [], latestLog, isLoading }) {
+  const [period, setPeriod] = useState('weekly');
+  const progress = buildProgressDashboardData({ tasks, scheduleItems, dailyLogs, latestLog, period });
+
+  if (isLoading) {
+    return <div className="empty-state">Loading progress dashboard...</div>;
+  }
+
+  return (
+    <section className="progress-page">
+      <div className="progress-hero">
+        <div>
+          <p className="eyebrow">Progress / Feedback Loop</p>
+          <h1>Learning Progress</h1>
+          <span className="toolbar-copy">
+            See how your productivity improves and how feedback changes future schedules.
+          </span>
+        </div>
+        <div className="period-switch" aria-label="Progress period">
+          {['daily', 'weekly', 'monthly'].map((item) => (
+            <button
+              className={period === item ? 'active' : ''}
+              type="button"
+              key={item}
+              onClick={() => setPeriod(item)}>
+              {item}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {progress.hasEnoughData ? null : (
+        <div className="progress-empty-state">
+          <BarChart3 size={42} />
+          <div>
+            <strong>No progress data yet.</strong>
+            <span>Complete tasks and submit feedback to see your progress.</span>
+          </div>
+        </div>
+      )}
+
+      <div className="progress-score-grid">
+        <ProgressScoreCard label="Today's productivity" value={progress.todayScore} tone={progress.todayScore >= 70 ? 'good' : progress.todayScore >= 45 ? 'medium' : 'low'} />
+        <ProgressScoreCard label="Weekly average" value={progress.weeklyAverage} tone={progress.weeklyAverage >= 70 ? 'good' : progress.weeklyAverage >= 45 ? 'medium' : 'low'} />
+        <ProgressScoreCard label="Monthly average" value={progress.monthlyAverage} tone={progress.monthlyAverage >= 70 ? 'good' : progress.monthlyAverage >= 45 ? 'medium' : 'low'} />
+        <article className="progress-best-day-card">
+          <Target size={28} />
+          <strong>{progress.bestDay}</strong>
+          <span>Best productive day</span>
+        </article>
+      </div>
+
+      <div className="progress-dashboard-grid">
+        <section className="progress-card productivity-progress-card">
+          <ProgressCardHeader icon={TrendingUp} eyebrow="Productivity Progress" title="Productivity Over Time" />
+          <MiniLine values={progress.productivityTrend} />
+          <p>{progress.improvementMessage}</p>
+        </section>
+
+        <section className="progress-card task-trend-card">
+          <ProgressCardHeader icon={CheckCircle2} eyebrow="Task Completion Trends" title="Completion Status" />
+          <div className="task-trend-layout">
+            <div className="donut-score" style={{ '--score': `${progress.completionPercentage}%`, '--score-color': progress.completionPercentage >= 70 ? 'var(--green)' : progress.completionPercentage >= 45 ? 'var(--amber)' : 'var(--rose)' }}>
+              <span>{progress.completionPercentage}%</span>
+              <small>Complete</small>
+            </div>
+            <div className="task-stat-list">
+              <span><strong>{progress.completedTasks}</strong> Completed tasks</span>
+              <span><strong>{progress.unfinishedTasks}</strong> Unfinished tasks</span>
+              <span><strong>{progress.overdueTasks}</strong> Overdue tasks</span>
+            </div>
+          </div>
+        </section>
+
+        <section className="progress-card planned-actual-card">
+          <ProgressCardHeader icon={Clock3} eyebrow="Planned vs Actual Time" title="Time Accuracy" />
+          <DurationCompare planned={progress.plannedMinutes} actual={progress.actualMinutes} />
+          <p>{progress.timeInsight}</p>
+        </section>
+
+        <section className="progress-card feedback-impact-card">
+          <ProgressCardHeader icon={RefreshCw} eyebrow="Feedback Impact" title="Before Feedback → After Feedback" />
+          <div className="feedback-before-after">
+            <article>
+              <strong>Before Feedback</strong>
+              <span>{progress.feedbackBefore}</span>
+            </article>
+            <i aria-hidden="true">→</i>
+            <article>
+              <strong>After Feedback</strong>
+              <span>{progress.feedbackAfter}</span>
+            </article>
+          </div>
+        </section>
+
+        <section className="progress-card energy-mood-card">
+          <ProgressCardHeader icon={Activity} eyebrow="Energy & Mood Progress" title="Energy, Mood, Stress" />
+          <div className="energy-mood-grid">
+            <div>
+              <strong>Energy</strong>
+              <MiniLine values={progress.energyTrend} />
+            </div>
+            <div>
+              <strong>Stress</strong>
+              <MoodTrendDots values={progress.stressTrend} />
+            </div>
+          </div>
+          <p>{progress.energyMoodMessage}</p>
+        </section>
+
+        <section className="progress-card learning-summary-card">
+          <ProgressCardHeader icon={BrainCircuit} eyebrow="Smart Learning Summary" title="What The System Learned" />
+          <div className="learning-list">
+            {progress.learningSummary.map((item) => (
+              <article key={item}>
+                <Sparkles size={17} />
+                <span>{item}</span>
+              </article>
+            ))}
+          </div>
+        </section>
+      </div>
+    </section>
+  );
+}
+
+function ProgressScoreCard({ label, value, tone }) {
+  return (
+    <article className={`progress-score-card ${tone}`}>
+      <div className="score-ring" style={{ '--score': `${value}%` }}>
+        <strong>{value}%</strong>
+      </div>
+      <span>{label}</span>
+    </article>
+  );
+}
+
+function ProgressCardHeader({ icon: Icon, eyebrow, title }) {
+  return (
+    <div className="progress-card-head">
+      <Icon size={28} />
+      <div>
+        <p className="eyebrow">{eyebrow}</p>
+        <h2>{title}</h2>
+      </div>
+    </div>
+  );
+}
+
+function SettingsCard({ icon: Icon, eyebrow, title, children }) {
+  return (
+    <section className="settings-card">
+      <div className="settings-card-head">
+        <Icon size={28} />
+        <div>
+          <p className="eyebrow">{eyebrow}</p>
+          <h2>{title}</h2>
+        </div>
+      </div>
+      <div className="settings-card-body">{children}</div>
+    </section>
+  );
+}
+
+function ToggleSetting({ label, checked, onChange }) {
+  return (
+    <label className="toggle-setting">
+      <span>{label}</span>
+      <input
+        type="checkbox"
+        checked={Boolean(checked)}
+        onChange={(event) => onChange(event.target.checked)}
+      />
+      <i aria-hidden="true"></i>
+    </label>
   );
 }
 
@@ -2413,6 +2994,51 @@ function readRegisteredUser() {
   }
 }
 
+function readPlannerSettings() {
+  try {
+    const saved = localStorage.getItem(settingsKey);
+    return mergeSettings(defaultSettings, saved ? JSON.parse(saved) : {});
+  } catch {
+    return defaultSettings;
+  }
+}
+
+function mergeSettings(base, updates) {
+  return Object.fromEntries(
+    Object.entries(base).map(([section, values]) => [
+      section,
+      {
+        ...values,
+        ...(updates?.[section] || {})
+      }
+    ])
+  );
+}
+
+function mergeSettingsWithUser(settings, user) {
+  const merged = mergeSettings(defaultSettings, settings);
+  return {
+    ...merged,
+    profile: {
+      ...merged.profile,
+      display_name: merged.profile.display_name || user?.full_name || defaultLocalUser.first_name + ' ' + defaultLocalUser.last_name,
+      email: merged.profile.email || user?.email || defaultLocalUser.email,
+      profile_image: merged.profile.profile_image || user?.profile_image || ''
+    }
+  };
+}
+
+function buildProfileFromSettings(profile, user) {
+  const displayName = profile.display_name?.trim() || user?.full_name || defaultLocalUser.first_name + ' ' + defaultLocalUser.last_name;
+  const [firstName, ...lastNameParts] = displayName.split(/\s+/);
+  return {
+    first_name: firstName || defaultLocalUser.first_name,
+    last_name: lastNameParts.join(' ') || user?.last_name || defaultLocalUser.last_name,
+    email: profile.email || user?.email || defaultLocalUser.email,
+    profile_image: profile.profile_image || user?.profile_image || ''
+  };
+}
+
 function buildProfileUser(localUser, serverUser) {
   const fullName = localUser
     ? `${localUser.first_name} ${localUser.last_name}`
@@ -2773,6 +3399,127 @@ function buildLogMetricValues(logs, field) {
   const source = logs.slice(-7);
   if (source.length === 0) return [2, 3, 3, 4, 3, 2, 3];
   return source.map((log) => Number.parseInt(log[field] || log.predicted_energy_level, 10) || 3);
+}
+
+function buildProgressDashboardData({ tasks = [], scheduleItems = [], dailyLogs = [], latestLog, period }) {
+  const periodStart = getInsightsPeriodStart(period);
+  const todayKey = toDateKey(new Date());
+  const filteredTasks = tasks.filter((task) => {
+    const key = datePart(task.completed_on) || datePart(task.completed_at) || datePart(task.task_date) || datePart(task.created_at);
+    return !key || new Date(`${key}T00:00:00`) >= periodStart;
+  });
+  const filteredLogs = dailyLogs.filter((log) => {
+    const key = datePart(log.log_date) || datePart(log.created_at);
+    return !key || new Date(`${key}T00:00:00`) >= periodStart;
+  });
+  const completedTasks = filteredTasks.filter(isTaskCompleted);
+  const unfinishedTasks = filteredTasks.filter((task) => !isTaskCompleted(task) && !isTaskArchived(task));
+  const overdueTasks = unfinishedTasks.filter((task) => getDeadlineState(task, todayKey).tone === 'overdue');
+  const completionPercentage = filteredTasks.length ? Math.round((completedTasks.length / filteredTasks.length) * 100) : 0;
+  const productivityByDay = buildProductivityByDay(tasks);
+  const todayScore = productivityByDay.get(todayKey) || completionPercentage;
+  const weeklyAverage = averageProgressForRange(productivityByDay, getInsightsPeriodStart('weekly'));
+  const monthlyAverage = averageProgressForRange(productivityByDay, getInsightsPeriodStart('monthly'));
+  const bestDayEntry = [...productivityByDay.entries()].sort((a, b) => b[1] - a[1])[0];
+  const plannedMinutes = Math.round(averageNumber(completedTasks.map((task) => task.estimated_duration_minutes))) || 30;
+  const actualMinutes = Math.round(averageNumber(completedTasks.map((task) => task.actual_duration_minutes || task.estimated_duration_minutes))) || plannedMinutes;
+  const productivityTrend = buildProgressTrend(productivityByDay, period);
+  const previousAverage = productivityTrend.length > 1
+    ? Math.round(averageNumber(productivityTrend.slice(0, Math.max(1, Math.floor(productivityTrend.length / 2)))))
+    : 0;
+  const currentAverage = productivityTrend.length > 1
+    ? Math.round(averageNumber(productivityTrend.slice(Math.floor(productivityTrend.length / 2))))
+    : completionPercentage;
+  const improvement = currentAverage - previousAverage;
+  const hardTasks = filteredTasks.filter((task) => Number.parseInt(task.difficulty_level, 10) >= 4);
+  const energyTrend = buildLogMetricChart(filteredLogs, 'energy_level');
+  const stressTrend = buildLogMetricValues(filteredLogs, 'stress_level');
+  const averageEnergy = averageNumber(filteredLogs.map((log) => log.predicted_energy_level || log.energy_level || latestLog?.energy_level));
+  const averageStress = averageNumber(filteredLogs.map((log) => log.stress_level || latestLog?.stress_level));
+  const productiveHour = getMostProductiveHour(scheduleItems.filter((item) => new Date(item.start_time) >= periodStart), completedTasks);
+  const hasEnoughData = filteredTasks.length >= 2 || filteredLogs.length >= 2 || scheduleItems.length >= 2;
+
+  return {
+    hasEnoughData,
+    todayScore: clampScore(todayScore || 0),
+    weeklyAverage: clampScore(weeklyAverage || 0),
+    monthlyAverage: clampScore(monthlyAverage || 0),
+    bestDay: bestDayEntry ? formatProgressDayLabel(bestDayEntry[0]) : 'No data',
+    productivityTrend,
+    improvementMessage: improvement > 0
+      ? `Productivity improved by ${improvement}% in this ${period} view.`
+      : improvement < 0
+        ? `Productivity dropped by ${Math.abs(improvement)}%, so the next schedule should be lighter.`
+        : 'Productivity is stable. More task history will make this trend smarter.',
+    completedTasks: completedTasks.length,
+    unfinishedTasks: unfinishedTasks.length,
+    overdueTasks: overdueTasks.length,
+    completionPercentage,
+    plannedMinutes,
+    actualMinutes,
+    timeInsight: actualMinutes > plannedMinutes
+      ? 'Hard or large tasks need more planned time in future schedules.'
+      : 'Planned time and actual time are close, so estimates are reliable.',
+    feedbackBefore: averageEnergy && averageEnergy <= 2.5 ? 'Hard tasks were still planned normally.' : 'Tasks were planned by priority and deadline.',
+    feedbackAfter: averageEnergy && averageEnergy <= 2.5 ? 'The system should move hard tasks later and add shorter sessions.' : 'Feedback helps keep similar tasks in better time windows.',
+    energyTrend,
+    stressTrend,
+    energyMoodMessage: averageStress >= 3.5
+      ? 'Stress is high recently. The scheduler should reduce overload and add breaks.'
+      : 'Energy and mood look stable enough for balanced planning.',
+    learningSummary: [
+      productiveHour === 'No data' ? 'More completed tasks will reveal the best working hours.' : `You work better around ${productiveHour}.`,
+      hardTasks.length > 0 ? 'Hard tasks should receive longer focus blocks.' : 'Medium tasks are currently easier to complete consistently.',
+      actualMinutes > plannedMinutes ? 'Similar tasks should get more time in future schedules.' : 'Current duration estimates are mostly accurate.',
+      overdueTasks.length > 0 ? 'Deadline tasks need stronger urgency as the deadline approaches.' : 'Deadline handling is currently under control.',
+      averageStress >= 3.5 ? 'Short breaks should be added when stress increases.' : 'Short breaks help protect focus and keep the schedule balanced.'
+    ]
+  };
+}
+
+function buildProductivityByDay(tasks) {
+  const byDay = new Map();
+
+  tasks.forEach((task) => {
+    const key = datePart(task.completed_on) || datePart(task.completed_at) || datePart(task.task_date) || datePart(task.created_at);
+    if (!key) return;
+    const current = byDay.get(key) || { total: 0, completed: 0 };
+    current.total += 1;
+    if (isTaskCompleted(task)) current.completed += 1;
+    byDay.set(key, current);
+  });
+
+  return new Map([...byDay.entries()].map(([key, value]) => [
+    key,
+    value.total ? Math.round((value.completed / value.total) * 100) : 0
+  ]));
+}
+
+function averageProgressForRange(progressByDay, startDate) {
+  const values = [...progressByDay.entries()]
+    .filter(([key]) => new Date(`${key}T00:00:00`) >= startDate)
+    .map(([, value]) => value);
+  return values.length ? Math.round(averageNumber(values)) : 0;
+}
+
+function buildProgressTrend(progressByDay, period) {
+  const points = period === 'monthly' ? 8 : period === 'daily' ? 6 : 7;
+  const sortedValues = [...progressByDay.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([, value]) => value)
+    .slice(-points);
+  if (sortedValues.length > 0) return sortedValues;
+  return [18, 28, 40, 38, 52, 60, 66].slice(-points);
+}
+
+function formatProgressDayLabel(dayKey) {
+  const date = new Date(`${dayKey}T00:00:00`);
+  if (!isValidDate(date)) return dayKey;
+  return new Intl.DateTimeFormat('en', {
+    weekday: 'short',
+    day: '2-digit',
+    month: '2-digit'
+  }).format(date);
 }
 
 function getMonthCalendarDays(monthDate) {
