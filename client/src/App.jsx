@@ -7,6 +7,7 @@ import {
   Database,
   Flame,
   ListChecks,
+  Lock,
   Pencil,
   PlayCircle,
   RefreshCw,
@@ -200,7 +201,11 @@ export function App() {
             isLoading={isLoading}
             onSelectDay={(day) => {
               setSelectedDay(day);
-              setCurrentPage(hasGeneratedPlanForDay(day.key, schedule, scheduleItems) ? 'generated' : 'day');
+              setCurrentPage(
+                isPastDayKey(day.key) || hasGeneratedPlanForDay(day.key, schedule, scheduleItems)
+                  ? 'generated'
+                  : 'day'
+              );
             }}
           />
         ) : currentPage === 'day' ? (
@@ -480,6 +485,7 @@ function SelectedDayInputPage({
   const editingTask = addedTasks.find((task) => task.local_id === editingTaskId) || null;
   const validation = validateSelectedDayInput(checkInDraft, addedTasks);
   const canGenerate = validation.isValid && !isGenerating;
+  const isReviewMode = isPastDayKey(dayKey);
 
   async function handleTaskPreviewSubmit(task) {
     const preparedTask = {
@@ -510,13 +516,39 @@ function SelectedDayInputPage({
   }
 
   async function handleGenerateClick() {
-    if (!validation.isValid) return;
+    if (isReviewMode || !validation.isValid) return;
     setIsGenerating(true);
     try {
       await onGenerate({ ...(day || {}), key: dayKey }, checkInDraft, addedTasks);
     } finally {
       setIsGenerating(false);
     }
+  }
+
+  if (isReviewMode) {
+    return (
+      <section className="selected-day-page">
+        <div className="selected-day-hero">
+          <div>
+            <p className="eyebrow">Selected Day</p>
+            <h1>{dayTitle}</h1>
+            <span>This day has already ended, so it is available as a read-only review.</span>
+          </div>
+          <button className="text-action compact" type="button" onClick={onBack}>
+            <ArrowLeft size={16} />
+            Back to weekly dashboard
+          </button>
+        </div>
+
+        <div className="review-mode-banner">
+          <Lock size={18} />
+          <div>
+            <strong>Review Mode — This day has already ended.</strong>
+            <span>Add Task, Daily Check-In saving, and Generate Schedule are disabled for past days.</span>
+          </div>
+        </div>
+      </section>
+    );
   }
 
   return (
@@ -579,6 +611,7 @@ function SelectedDayInputPage({
 
 function DailyDetailsPage({ day, schedule, items = [], tasks = [], latestLog, onBack, onWeekly }) {
   const dayKey = day?.key || datePart(schedule?.schedule_date) || toDateKey(new Date());
+  const isReviewMode = isPastDayKey(dayKey);
   const [detailItems, setDetailItems] = useState(() => initializeDailyDetailItems({ day, schedule, items, tasks }));
   const [notice, setNotice] = useState('');
   const [editingItemId, setEditingItemId] = useState(null);
@@ -591,7 +624,7 @@ function DailyDetailsPage({ day, schedule, items = [], tasks = [], latestLog, on
   const currentTaskUi = details.currentTask
     ? activeTaskUi[currentTaskId] || buildActiveTaskUiState(details.currentTask)
     : null;
-  const feedbackTask = currentTaskUi?.feedbackOpen ? details.currentTask : null;
+  const feedbackTask = !isReviewMode && currentTaskUi?.feedbackOpen ? details.currentTask : null;
   const completedDetailsTask = selectedCompletedItemId
     ? details.completedTasks.find((item) => getDetailItemId(item) === selectedCompletedItemId)
     : null;
@@ -624,6 +657,11 @@ function DailyDetailsPage({ day, schedule, items = [], tasks = [], latestLog, on
   }, [dayKey]);
 
   function startTask(item) {
+    if (isReviewMode) {
+      setNotice('Review Mode is read-only. This task cannot be started from a past day.');
+      return;
+    }
+
     if (item.task_kind === 'fixed') {
       setNotice('Fixed-time tasks start automatically at their scheduled time.');
       return;
@@ -644,6 +682,11 @@ function DailyDetailsPage({ day, schedule, items = [], tasks = [], latestLog, on
   }
 
   function finishTask(item) {
+    if (isReviewMode) {
+      setNotice('Review Mode is read-only. This task cannot be finished from a past day.');
+      return;
+    }
+
     const completedAt = new Date();
     setDetailItems((currentItems) => currentItems.map((detailItem) => (
       getDetailItemId(detailItem) === getDetailItemId(item)
@@ -659,6 +702,11 @@ function DailyDetailsPage({ day, schedule, items = [], tasks = [], latestLog, on
   }
 
   function returnToWaiting(item) {
+    if (isReviewMode) {
+      setNotice('Review Mode is read-only. This task cannot be returned from a past day.');
+      return;
+    }
+
     setDetailItems((currentItems) => currentItems.map((detailItem) => (
       getDetailItemId(detailItem) === getDetailItemId(item)
         ? { ...detailItem, status: 'waiting' }
@@ -679,6 +727,8 @@ function DailyDetailsPage({ day, schedule, items = [], tasks = [], latestLog, on
   }
 
   function toggleSubtask(item, subtaskId) {
+    if (isReviewMode) return;
+
     updateActiveTaskUi(item, (currentState) => ({
       ...currentState,
       subtasks: currentState.subtasks.map((subtask) => (
@@ -688,6 +738,11 @@ function DailyDetailsPage({ day, schedule, items = [], tasks = [], latestLog, on
   }
 
   function addTaskResource(item, type, value) {
+    if (isReviewMode) {
+      setNotice('Review Mode is read-only. Resources cannot be changed for a past day.');
+      return;
+    }
+
     const draftKey = type === 'image' ? 'imageDraft' : 'linkDraft';
     const rawValue = value?.trim();
     if (!rawValue) {
@@ -717,6 +772,11 @@ function DailyDetailsPage({ day, schedule, items = [], tasks = [], latestLog, on
   }
 
   function addImageResourceFromFile(item, file) {
+    if (isReviewMode) {
+      setNotice('Review Mode is read-only. Resources cannot be changed for a past day.');
+      return;
+    }
+
     if (!file) return;
 
     if (!file.type.startsWith('image/')) {
@@ -746,6 +806,11 @@ function DailyDetailsPage({ day, schedule, items = [], tasks = [], latestLog, on
   }
 
   function removeTaskResource(item, resourceId) {
+    if (isReviewMode) {
+      setNotice('Review Mode is read-only. Resources cannot be changed for a past day.');
+      return;
+    }
+
     updateActiveTaskUi(item, (state) => ({
       ...state,
       resources: state.resources.filter((resource) => resource.id !== resourceId)
@@ -753,6 +818,11 @@ function DailyDetailsPage({ day, schedule, items = [], tasks = [], latestLog, on
   }
 
   function openFeedbackPopup(item) {
+    if (isReviewMode) {
+      setNotice('Review Mode is read-only. New feedback cannot be submitted for a past day.');
+      return;
+    }
+
     updateActiveTaskUi(item, { feedbackOpen: true });
   }
 
@@ -771,6 +841,11 @@ function DailyDetailsPage({ day, schedule, items = [], tasks = [], latestLog, on
   }
 
   function submitProgressFeedback(item) {
+    if (isReviewMode) {
+      setNotice('Review Mode is read-only. New feedback cannot be submitted for a past day.');
+      return;
+    }
+
     const currentState = activeTaskUi[getDetailItemId(item)] || buildActiveTaskUiState(item);
     const outcome = currentState.feedbackDraft.outcome;
 
@@ -797,6 +872,11 @@ function DailyDetailsPage({ day, schedule, items = [], tasks = [], latestLog, on
   }
 
   function beginEdit(item) {
+    if (isReviewMode) {
+      setNotice('Review Mode is read-only. Past-day tasks cannot be edited.');
+      return;
+    }
+
     setEditingItemId(getDetailItemId(item));
     setEditDraft(buildDailyTaskEditDraft(item));
   }
@@ -807,6 +887,11 @@ function DailyDetailsPage({ day, schedule, items = [], tasks = [], latestLog, on
   }
 
   function saveEdit(item) {
+    if (isReviewMode) {
+      setNotice('Review Mode is read-only. Past-day tasks cannot be edited.');
+      return;
+    }
+
     if (!editDraft?.title?.trim()) {
       setNotice('Task title is required before saving the update.');
       return;
@@ -827,11 +912,19 @@ function DailyDetailsPage({ day, schedule, items = [], tasks = [], latestLog, on
   }
 
   function toggleRestoreMenu(item) {
+    if (isReviewMode) return;
+
     const itemId = getDetailItemId(item);
     setRestoreMenuItemId((currentId) => (currentId === itemId ? null : itemId));
   }
 
   function restoreCompletedTask(item, targetStatus) {
+    if (isReviewMode) {
+      setNotice('Review Mode is read-only. Completed tasks cannot be restored from a past day.');
+      setRestoreMenuItemId(null);
+      return;
+    }
+
     const itemId = getDetailItemId(item);
     const restoreTime = new Date().toISOString();
 
@@ -861,7 +954,7 @@ function DailyDetailsPage({ day, schedule, items = [], tasks = [], latestLog, on
   }
 
   return (
-    <section className="daily-details-page">
+    <section className={`daily-details-page ${isReviewMode ? 'review-mode' : ''}`}>
       <div className="daily-details-hero">
         <div>
           <p className="eyebrow">Daily Details</p>
@@ -873,6 +966,16 @@ function DailyDetailsPage({ day, schedule, items = [], tasks = [], latestLog, on
           Back to weekly dashboard
         </button>
       </div>
+
+      {isReviewMode ? (
+        <div className="review-mode-banner">
+          <Lock size={18} />
+          <div>
+            <strong>Review Mode — This day has already ended.</strong>
+            <span>You can view history, evaluations, feedback, resources, and details. Active task management is disabled.</span>
+          </div>
+        </div>
+      ) : null}
 
       {notice ? <p className="daily-notice">{notice}</p> : null}
 
@@ -895,6 +998,7 @@ function DailyDetailsPage({ day, schedule, items = [], tasks = [], latestLog, on
                   onSaveEdit={saveEdit}
                   onCancelEdit={cancelEdit}
                   onStart={startTask}
+                  isReviewMode={isReviewMode}
                 />
               ))}
             </div>
@@ -915,6 +1019,7 @@ function DailyDetailsPage({ day, schedule, items = [], tasks = [], latestLog, on
               onOpenFeedback={openFeedbackPopup}
               onFinish={finishTask}
               onReturn={returnToWaiting}
+              isReviewMode={isReviewMode}
             />
           ) : (
             <p className="no-results">No task in progress</p>
@@ -936,6 +1041,7 @@ function DailyDetailsPage({ day, schedule, items = [], tasks = [], latestLog, on
                     onOpen={() => setSelectedCompletedItemId(getDetailItemId(item))}
                     onToggleRestore={() => toggleRestoreMenu(item)}
                     onRestore={(targetStatus) => restoreCompletedTask(item, targetStatus)}
+                    isReviewMode={isReviewMode}
                   />
                 ))}
               </div>
@@ -996,10 +1102,12 @@ function DailyDetailsPage({ day, schedule, items = [], tasks = [], latestLog, on
         />
       ) : null}
 
-      <button className="secondary-action details-back-action" type="button" onClick={onBack}>
-        <ArrowLeft size={18} />
-        Back to selected day input
-      </button>
+      {!isReviewMode ? (
+        <button className="secondary-action details-back-action" type="button" onClick={onBack}>
+          <ArrowLeft size={18} />
+          Back to selected day input
+        </button>
+      ) : null}
     </section>
   );
 }
@@ -1061,7 +1169,7 @@ function DailyDetailsCardHeader({ icon: Icon, eyebrow, title }) {
   );
 }
 
-function CompletedTaskCard({ item, isRestoreOpen, onOpen, onToggleRestore, onRestore }) {
+function CompletedTaskCard({ item, isRestoreOpen, onOpen, onToggleRestore, onRestore, isReviewMode }) {
   const evaluation = buildCompletedTaskEvaluation(item);
 
   return (
@@ -1083,11 +1191,18 @@ function CompletedTaskCard({ item, isRestoreOpen, onOpen, onToggleRestore, onRes
       </button>
 
       <div className="restore-task-area">
-        <button className="restore-task-button" type="button" onClick={onToggleRestore}>
-          <RefreshCw size={14} />
-          Restore Task
-        </button>
-        {isRestoreOpen ? (
+        {isReviewMode ? (
+          <span className="restore-readonly">
+            <Lock size={13} />
+            Read-only
+          </span>
+        ) : (
+          <button className="restore-task-button" type="button" onClick={onToggleRestore}>
+            <RefreshCw size={14} />
+            Restore Task
+          </button>
+        )}
+        {isRestoreOpen && !isReviewMode ? (
           <div className="restore-task-menu">
             <button type="button" onClick={() => onRestore?.('in_progress')}>
               Return to In Progress
@@ -1144,7 +1259,8 @@ function InProgressTaskCard({
   onRemoveResource,
   onOpenFeedback,
   onFinish,
-  onReturn
+  onReturn,
+  isReviewMode = false
 }) {
   const completedSubtasks = uiState.subtasks.filter((subtask) => subtask.completed).length;
   const totalSubtasks = uiState.subtasks.length || 1;
@@ -1152,7 +1268,7 @@ function InProgressTaskCard({
   const readyToFinish = progress === 100;
 
   return (
-    <article className="in-progress-task-card">
+    <article className={`in-progress-task-card ${isReviewMode ? 'read-only-card' : ''}`}>
       <div className="active-task-main">
         <div>
           <p className="eyebrow">Active Task</p>
@@ -1187,6 +1303,7 @@ function InProgressTaskCard({
               <input
                 type="checkbox"
                 checked={subtask.completed}
+                disabled={isReviewMode}
                 onChange={() => onToggleSubtask(item, subtask.id)}
               />
               <span>{subtask.title}</span>
@@ -1202,41 +1319,45 @@ function InProgressTaskCard({
             <span>Add quick resources for this task.</span>
           </div>
         </div>
-        <div className="resource-input-grid">
-          <div className="image-upload-control">
-            <span>Add image</span>
-            <label className="image-upload-button">
-              Choose image from computer
-              <input
-                type="file"
-                accept="image/*"
-                onChange={(event) => {
-                  onAddImageResource?.(item, event.target.files?.[0]);
-                  event.target.value = '';
-                }}
-              />
+        {!isReviewMode ? (
+          <div className="resource-input-grid">
+            <div className="image-upload-control">
+              <span>Add image</span>
+              <label className="image-upload-button">
+                Choose image from computer
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={(event) => {
+                    onAddImageResource?.(item, event.target.files?.[0]);
+                    event.target.value = '';
+                  }}
+                />
+              </label>
+              <div className="inline-add-control">
+                <input
+                  placeholder="Image URL from internet"
+                  value={uiState.imageDraft}
+                  onChange={(event) => onUiChange(item, { imageDraft: event.target.value })}
+                />
+                <button type="button" onClick={() => onAddResource(item, 'image', uiState.imageDraft)}>Add</button>
+              </div>
+            </div>
+            <label>
+              Add link
+              <div className="inline-add-control">
+                <input
+                  placeholder="https://..."
+                  value={uiState.linkDraft}
+                  onChange={(event) => onUiChange(item, { linkDraft: event.target.value })}
+                />
+                <button type="button" onClick={() => onAddResource(item, 'link', uiState.linkDraft)}>Add</button>
+              </div>
             </label>
-            <div className="inline-add-control">
-              <input
-                placeholder="Image URL from internet"
-                value={uiState.imageDraft}
-                onChange={(event) => onUiChange(item, { imageDraft: event.target.value })}
-              />
-              <button type="button" onClick={() => onAddResource(item, 'image', uiState.imageDraft)}>Add</button>
-            </div>
           </div>
-          <label>
-            Add link
-            <div className="inline-add-control">
-              <input
-                placeholder="https://..."
-                value={uiState.linkDraft}
-                onChange={(event) => onUiChange(item, { linkDraft: event.target.value })}
-              />
-              <button type="button" onClick={() => onAddResource(item, 'link', uiState.linkDraft)}>Add</button>
-            </div>
-          </label>
-        </div>
+        ) : (
+          <p className="resource-empty">Resources are read-only in Review Mode.</p>
+        )}
         {uiState.resources.length === 0 ? (
           <p className="resource-empty">No resources added yet.</p>
         ) : (
@@ -1245,7 +1366,7 @@ function InProgressTaskCard({
               <ResourceChip
                 key={resource.id}
                 resource={resource}
-                onRemove={() => onRemoveResource?.(item, resource.id)}
+                onRemove={isReviewMode ? null : () => onRemoveResource?.(item, resource.id)}
               />
             ))}
           </div>
@@ -1253,14 +1374,14 @@ function InProgressTaskCard({
       </section>
 
       <div className="detail-task-actions active-actions">
-        <button type="button" onClick={() => onOpenFeedback?.(item)}>
+        <button type="button" onClick={() => onOpenFeedback?.(item)} disabled={isReviewMode}>
           Feedback
         </button>
-        <button className={readyToFinish ? 'finish-ready' : ''} type="button" onClick={() => onFinish?.(item)}>
+        <button className={readyToFinish ? 'finish-ready' : ''} type="button" onClick={() => onFinish?.(item)} disabled={isReviewMode}>
           <CheckCircle2 size={15} />
           Finish Task
         </button>
-        <button className="secondary" type="button" onClick={() => onReturn?.(item)}>
+        <button className="secondary" type="button" onClick={() => onReturn?.(item)} disabled={isReviewMode}>
           <ArrowLeft size={15} />
           Return to Waiting
         </button>
@@ -1508,7 +1629,8 @@ function DailyDetailTaskCard({
   onCancelEdit,
   onStart,
   onFinish,
-  onReturn
+  onReturn,
+  isReviewMode = false
 }) {
   const isFixed = item.task_kind === 'fixed';
 
@@ -1538,7 +1660,13 @@ function DailyDetailTaskCard({
               <i style={{ width: `${item.progress || 45}%` }}></i>
             </div>
           ) : null}
-          {mode === 'waiting' ? (
+          {mode === 'waiting' && isReviewMode ? (
+            <span className="restore-readonly inline-readonly">
+              <Lock size={13} />
+              Read-only history
+            </span>
+          ) : null}
+          {mode === 'waiting' && !isReviewMode ? (
             <div className="detail-task-actions">
               <button type="button" onClick={() => onEdit?.(item)}>
                 <Pencil size={15} />
@@ -1550,7 +1678,7 @@ function DailyDetailTaskCard({
               </button>
             </div>
           ) : null}
-          {mode === 'progress' ? (
+          {mode === 'progress' && !isReviewMode ? (
             <div className="detail-task-actions">
               <button type="button" onClick={() => onFinish?.(item)}>
                 <CheckCircle2 size={15} />
@@ -1963,6 +2091,10 @@ function datePart(value) {
     return value.slice(0, 10);
   }
   return toDateKey(new Date(value));
+}
+
+function isPastDayKey(dayKey) {
+  return Boolean(dayKey) && dayKey < toDateKey(new Date());
 }
 
 function formatDeadline(value) {

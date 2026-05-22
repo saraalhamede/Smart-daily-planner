@@ -570,6 +570,7 @@ git switch -c first-version
 - Added a read-only Completed Task Details popup with task metadata, timing, progress, completed breakdown, resources, feedback, and system evaluation.
 - Updated the Daily Evaluation productivity score to display as a circular progress indicator with color based on score range.
 - Added a `Restore Task` menu for completed tasks so users can return a completed task to In Progress or Waiting without losing history, feedback, subtasks, or resources.
+- Added Review Mode for past days so ended days open as read-only daily history pages with active task management disabled.
 
 ### 2026-05-19
 - Added registration-first flow before opening the main planner.
