@@ -583,13 +583,20 @@ function DailyDetailsPage({ day, schedule, items = [], tasks = [], latestLog, on
   const [notice, setNotice] = useState('');
   const [editingItemId, setEditingItemId] = useState(null);
   const [editDraft, setEditDraft] = useState(null);
+  const [activeTaskUi, setActiveTaskUi] = useState({});
   const details = splitDailyDetailItems(detailItems, latestLog);
+  const currentTaskId = details.currentTask ? getDetailItemId(details.currentTask) : null;
+  const currentTaskUi = details.currentTask
+    ? activeTaskUi[currentTaskId] || buildActiveTaskUiState(details.currentTask)
+    : null;
+  const feedbackTask = currentTaskUi?.feedbackOpen ? details.currentTask : null;
 
   useEffect(() => {
     setDetailItems(initializeDailyDetailItems({ day, schedule, items, tasks }));
     setNotice('');
     setEditingItemId(null);
     setEditDraft(null);
+    setActiveTaskUi({});
   }, [dayKey, schedule?.schedule_id, items, tasks]);
 
   useEffect(() => {
@@ -644,6 +651,133 @@ function DailyDetailsPage({ day, schedule, items = [], tasks = [], latestLog, on
         : detailItem
     )));
     setNotice('Task returned to Waiting Tasks.');
+  }
+
+  function updateActiveTaskUi(item, updater) {
+    const itemId = getDetailItemId(item);
+    setActiveTaskUi((current) => {
+      const currentState = current[itemId] || buildActiveTaskUiState(item);
+      return {
+        ...current,
+        [itemId]: typeof updater === 'function' ? updater(currentState) : { ...currentState, ...updater }
+      };
+    });
+  }
+
+  function toggleSubtask(item, subtaskId) {
+    updateActiveTaskUi(item, (currentState) => ({
+      ...currentState,
+      subtasks: currentState.subtasks.map((subtask) => (
+        subtask.id === subtaskId ? { ...subtask, completed: !subtask.completed } : subtask
+      ))
+    }));
+  }
+
+  function addTaskResource(item, type, value) {
+    const draftKey = type === 'image' ? 'imageDraft' : 'linkDraft';
+    const rawValue = value?.trim();
+    if (!rawValue) {
+      setNotice(type === 'image' ? 'Add an image URL before saving it.' : 'Add a link before saving it.');
+      return;
+    }
+
+    if ((type === 'image' || type === 'link') && !isValidHttpUrl(rawValue)) {
+      setNotice('Please add a valid internet link that starts with http:// or https://.');
+      return;
+    }
+
+    updateActiveTaskUi(item, (state) => ({
+      ...state,
+      [draftKey]: '',
+      resources: [
+        ...state.resources,
+        {
+          id: createLocalTaskId(),
+          type,
+          label: shortenUrl(rawValue),
+          value: rawValue,
+          preview: type === 'image' ? rawValue : ''
+        }
+      ]
+    }));
+  }
+
+  function addImageResourceFromFile(item, file) {
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      setNotice('Please choose an image file.');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      updateActiveTaskUi(item, (state) => ({
+        ...state,
+        resources: [
+          ...state.resources,
+          {
+            id: createLocalTaskId(),
+            type: 'image',
+            label: file.name,
+            value: file.name,
+            preview: reader.result
+          }
+        ]
+      }));
+      setNotice('Image resource added.');
+    };
+    reader.onerror = () => setNotice('Could not read this image. Please try another file.');
+    reader.readAsDataURL(file);
+  }
+
+  function removeTaskResource(item, resourceId) {
+    updateActiveTaskUi(item, (state) => ({
+      ...state,
+      resources: state.resources.filter((resource) => resource.id !== resourceId)
+    }));
+  }
+
+  function openFeedbackPopup(item) {
+    updateActiveTaskUi(item, { feedbackOpen: true });
+  }
+
+  function closeFeedbackPopup(item) {
+    updateActiveTaskUi(item, { feedbackOpen: false });
+  }
+
+  function updateFeedbackDraft(item, updates) {
+    updateActiveTaskUi(item, (currentState) => ({
+      ...currentState,
+      feedbackDraft: {
+        ...currentState.feedbackDraft,
+        ...updates
+      }
+    }));
+  }
+
+  function submitProgressFeedback(item) {
+    const currentState = activeTaskUi[getDetailItemId(item)] || buildActiveTaskUiState(item);
+    const outcome = currentState.feedbackDraft.outcome;
+
+    updateActiveTaskUi(item, {
+      feedbackOpen: false,
+      feedbackDraft: getDefaultProgressFeedbackDraft()
+    });
+
+    if (outcome === 'completed') {
+      finishTask(item);
+      setNotice('Feedback saved. Task moved to Completed Tasks.');
+      return;
+    }
+
+    if (outcome === 'waiting') {
+      returnToWaiting(item);
+      setNotice('Feedback saved. Task returned to Waiting Tasks.');
+      return;
+    }
+
+    setNotice('Feedback saved. Task is still in progress.');
   }
 
   function beginEdit(item) {
@@ -720,10 +854,15 @@ function DailyDetailsPage({ day, schedule, items = [], tasks = [], latestLog, on
         <section className="daily-details-card progress-card">
           <DailyDetailsCardHeader icon={PlayCircle} eyebrow="Current" title="Task In Progress" />
           {details.currentTask ? (
-            <DailyDetailTaskCard
+            <InProgressTaskCard
               item={details.currentTask}
-              mode="progress"
-              showProgress
+              uiState={activeTaskUi[getDetailItemId(details.currentTask)] || buildActiveTaskUiState(details.currentTask)}
+              onToggleSubtask={toggleSubtask}
+              onUiChange={updateActiveTaskUi}
+              onAddResource={addTaskResource}
+              onAddImageResource={addImageResourceFromFile}
+              onRemoveResource={removeTaskResource}
+              onOpenFeedback={openFeedbackPopup}
               onFinish={finishTask}
               onReturn={returnToWaiting}
             />
@@ -778,6 +917,16 @@ function DailyDetailsPage({ day, schedule, items = [], tasks = [], latestLog, on
           )}
         </section>
       </div>
+
+      {feedbackTask ? (
+        <TaskFeedbackModal
+          item={feedbackTask}
+          draft={currentTaskUi.feedbackDraft}
+          onChange={(updates) => updateFeedbackDraft(feedbackTask, updates)}
+          onClose={() => closeFeedbackPopup(feedbackTask)}
+          onSubmit={() => submitProgressFeedback(feedbackTask)}
+        />
+      ) : null}
 
       <button className="secondary-action details-back-action" type="button" onClick={onBack}>
         <ArrowLeft size={18} />
@@ -840,6 +989,268 @@ function DailyDetailsCardHeader({ icon: Icon, eyebrow, title }) {
         <h2>{title}</h2>
       </div>
       <Icon size={26} />
+    </div>
+  );
+}
+
+function InProgressTaskCard({
+  item,
+  uiState,
+  onToggleSubtask,
+  onUiChange,
+  onAddResource,
+  onAddImageResource,
+  onRemoveResource,
+  onOpenFeedback,
+  onFinish,
+  onReturn
+}) {
+  const completedSubtasks = uiState.subtasks.filter((subtask) => subtask.completed).length;
+  const totalSubtasks = uiState.subtasks.length || 1;
+  const progress = Math.round((completedSubtasks / totalSubtasks) * 100);
+  const readyToFinish = progress === 100;
+
+  return (
+    <article className="in-progress-task-card">
+      <div className="active-task-main">
+        <div>
+          <p className="eyebrow">Active Task</p>
+          <h3>{item.title}</h3>
+          <span>{formatTimeRange(item.start_time, item.end_time)}</span>
+        </div>
+        <strong className="status-badge">In Progress</strong>
+      </div>
+
+      <div className="active-task-facts">
+        <span><strong>Duration</strong>{formatDuration(item.start_time, item.end_time)}</span>
+        <span><strong>Type</strong>{formatTaskKind(item.task_kind)}</span>
+        <span><strong>Difficulty</strong>{difficultyLabel(item.difficulty_level || item.task?.difficulty_level)}</span>
+        <span><strong>Priority</strong>{priorityLabel(item.task?.priority_level || item.priority_level)}</span>
+      </div>
+
+      <section className="task-breakdown-box">
+        <div className="mini-section-head">
+          <div>
+            <h4>Task Breakdown</h4>
+            <span>Small steps for the current task.</span>
+          </div>
+          <strong>{progress}%</strong>
+        </div>
+        <div className="active-progress">
+          <i style={{ width: `${progress}%` }}></i>
+        </div>
+        <p className="progress-copy">Progress: {progress}% - {completedSubtasks}/{uiState.subtasks.length} completed</p>
+        <div className="subtask-list">
+          {uiState.subtasks.map((subtask) => (
+            <label className="subtask-row" key={subtask.id}>
+              <input
+                type="checkbox"
+                checked={subtask.completed}
+                onChange={() => onToggleSubtask(item, subtask.id)}
+              />
+              <span>{subtask.title}</span>
+            </label>
+          ))}
+        </div>
+      </section>
+
+      <section className="task-resources-box">
+        <div className="mini-section-head">
+          <div>
+            <h4>Task Resources</h4>
+            <span>Add quick resources for this task.</span>
+          </div>
+        </div>
+        <div className="resource-input-grid">
+          <div className="image-upload-control">
+            <span>Add image</span>
+            <label className="image-upload-button">
+              Choose image from computer
+              <input
+                type="file"
+                accept="image/*"
+                onChange={(event) => {
+                  onAddImageResource?.(item, event.target.files?.[0]);
+                  event.target.value = '';
+                }}
+              />
+            </label>
+            <div className="inline-add-control">
+              <input
+                placeholder="Image URL from internet"
+                value={uiState.imageDraft}
+                onChange={(event) => onUiChange(item, { imageDraft: event.target.value })}
+              />
+              <button type="button" onClick={() => onAddResource(item, 'image', uiState.imageDraft)}>Add</button>
+            </div>
+          </div>
+          <label>
+            Add link
+            <div className="inline-add-control">
+              <input
+                placeholder="https://..."
+                value={uiState.linkDraft}
+                onChange={(event) => onUiChange(item, { linkDraft: event.target.value })}
+              />
+              <button type="button" onClick={() => onAddResource(item, 'link', uiState.linkDraft)}>Add</button>
+            </div>
+          </label>
+        </div>
+        {uiState.resources.length === 0 ? (
+          <p className="resource-empty">No resources added yet.</p>
+        ) : (
+          <div className="resource-chip-list">
+            {uiState.resources.map((resource) => (
+              <ResourceChip
+                key={resource.id}
+                resource={resource}
+                onRemove={() => onRemoveResource?.(item, resource.id)}
+              />
+            ))}
+          </div>
+        )}
+      </section>
+
+      <div className="detail-task-actions active-actions">
+        <button type="button" onClick={() => onOpenFeedback?.(item)}>
+          Feedback
+        </button>
+        <button className={readyToFinish ? 'finish-ready' : ''} type="button" onClick={() => onFinish?.(item)}>
+          <CheckCircle2 size={15} />
+          Finish Task
+        </button>
+        <button className="secondary" type="button" onClick={() => onReturn?.(item)}>
+          <ArrowLeft size={15} />
+          Return to Waiting
+        </button>
+      </div>
+
+      {readyToFinish ? (
+        <p className="ready-to-finish">All subtasks are complete. This task is ready to finish.</p>
+      ) : null}
+    </article>
+  );
+}
+
+function ResourceChip({ resource, onRemove }) {
+  const chipContent = (
+    <>
+      {resource.type === 'image' && resource.preview ? (
+        <img src={resource.preview} alt={resource.label} />
+      ) : null}
+      <span>
+        <strong>{resource.type === 'image' ? 'Image' : 'Link'}</strong>
+        {resource.label}
+      </span>
+    </>
+  );
+
+  return (
+    <span className={`resource-chip ${resource.type}`}>
+      {resource.type === 'link' ? (
+        <a href={resource.value} target="_blank" rel="noreferrer">
+          {chipContent}
+        </a>
+      ) : (
+        chipContent
+      )}
+      <button type="button" aria-label={`Remove ${resource.label}`} onClick={onRemove}>
+        x
+      </button>
+    </span>
+  );
+}
+
+function TaskFeedbackModal({ item, draft, onChange, onClose, onSubmit }) {
+  return (
+    <div className="feedback-modal-backdrop" role="presentation" onClick={onClose}>
+      <section
+        className="feedback-modal-card"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="task-feedback-title"
+        onClick={(event) => event.stopPropagation()}>
+        <div className="feedback-modal-head">
+          <div>
+            <p className="eyebrow">Focused update</p>
+            <h2 id="task-feedback-title">Task Feedback</h2>
+            <span>{item.title}</span>
+          </div>
+          <button className="modal-close-button" type="button" aria-label="Close feedback" onClick={onClose}>
+            x
+          </button>
+        </div>
+
+        <form
+          className="feedback-modal-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            onSubmit?.();
+          }}>
+          <label>
+            Task completed?
+            <select value={draft.outcome} onChange={(event) => onChange({ outcome: event.target.value })}>
+              <option value="completed">Yes - move to Completed Tasks</option>
+              <option value="in_progress">No - keep in progress</option>
+              <option value="waiting">No - return to Waiting Tasks</option>
+            </select>
+          </label>
+
+          <div className="feedback-grid">
+            <label>
+              Difficulty feedback
+              <select value={draft.difficulty_feedback} onChange={(event) => onChange({ difficulty_feedback: event.target.value })}>
+                <option value="">Choose level</option>
+                <option value="1">1 - very easy</option>
+                <option value="2">2 - easy</option>
+                <option value="3">3 - medium</option>
+                <option value="4">4 - hard</option>
+                <option value="5">5 - very hard</option>
+              </select>
+            </label>
+            <label>
+              Current energy level
+              <select value={draft.energy_after} onChange={(event) => onChange({ energy_after: event.target.value })}>
+                <option value="">Choose energy</option>
+                <option value="1">1 - very low</option>
+                <option value="2">2 - low</option>
+                <option value="3">3 - medium</option>
+                <option value="4">4 - good</option>
+                <option value="5">5 - high</option>
+              </select>
+            </label>
+            <label>
+              Current mood
+              <select value={draft.mood_after} onChange={(event) => onChange({ mood_after: event.target.value })}>
+                <option value="">Choose mood</option>
+                <option value="1">1 - very low</option>
+                <option value="2">2 - low</option>
+                <option value="3">3 - neutral</option>
+                <option value="4">4 - good</option>
+                <option value="5">5 - great</option>
+              </select>
+            </label>
+          </div>
+
+          <label>
+            Optional comment
+            <textarea
+              placeholder="Write a short note about how the task went..."
+              value={draft.comment}
+              onChange={(event) => onChange({ comment: event.target.value })}
+            />
+          </label>
+
+          <div className="feedback-modal-actions">
+            <button className="secondary-action" type="button" onClick={onClose}>
+              Close
+            </button>
+            <button className="primary-action" type="submit">
+              Submit Feedback
+            </button>
+          </div>
+        </form>
+      </section>
     </div>
   );
 }
@@ -1492,6 +1903,36 @@ function buildDailyTaskEditDraft(item) {
   };
 }
 
+function buildActiveTaskUiState(item) {
+  return {
+    subtasks: buildExampleSubtasks(item),
+    resources: [],
+    imageDraft: '',
+    linkDraft: '',
+    feedbackOpen: false,
+    feedbackDraft: getDefaultProgressFeedbackDraft()
+  };
+}
+
+function buildExampleSubtasks(item) {
+  const title = item?.title || 'current task';
+  return [
+    { id: 'step_1', title: `Plan the main steps for "${title}"`, completed: false },
+    { id: 'step_2', title: 'Work on the main part', completed: false },
+    { id: 'step_3', title: 'Review and fix issues', completed: false }
+  ];
+}
+
+function getDefaultProgressFeedbackDraft() {
+  return {
+    outcome: 'completed',
+    difficulty_feedback: '',
+    energy_after: '',
+    mood_after: '',
+    comment: ''
+  };
+}
+
 function applyDailyTaskEdit(item, draft, dayKey) {
   const priorityLevel = Number.parseInt(draft.priority_level, 10) || item.task?.priority_level || 3;
   const difficultyLevel = Number.parseInt(draft.difficulty_level, 10) || item.difficulty_level || 3;
@@ -1536,6 +1977,56 @@ function getDetailItemId(item) {
 function formatTaskStatus(status) {
   if (status === 'in_progress') return 'in progress';
   return status || 'waiting';
+}
+
+function formatTaskKind(kind) {
+  return kind === 'fixed' ? 'Fixed-time' : 'Flexible';
+}
+
+function formatDuration(start, end) {
+  const startDate = new Date(start);
+  const endDate = new Date(end);
+  if (!isValidDate(startDate) || !isValidDate(endDate) || endDate <= startDate) return '--';
+
+  const minutes = Math.round((endDate - startDate) / 60000);
+  if (minutes < 60) return `${minutes} min`;
+
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  if (remainingMinutes === 0) return `${hours} ${hours === 1 ? 'hour' : 'hours'}`;
+  return `${hours}h ${remainingMinutes}m`;
+}
+
+function priorityLabel(value) {
+  const priority = Number.parseInt(value, 10) || 3;
+  if (priority >= 5) return 'Very high';
+  if (priority === 4) return 'High';
+  if (priority === 2) return 'Low';
+  if (priority <= 1) return 'Very low';
+  return 'Medium';
+}
+
+function difficultyLabel(value) {
+  const difficulty = Number.parseInt(value, 10) || 3;
+  if (difficulty >= 5) return 'Very hard';
+  if (difficulty === 4) return 'Hard';
+  if (difficulty === 2) return 'Easy';
+  if (difficulty <= 1) return 'Very easy';
+  return 'Medium';
+}
+
+function shortenUrl(value) {
+  if (!value) return '';
+  return value.length > 34 ? `${value.slice(0, 31)}...` : value;
+}
+
+function isValidHttpUrl(value) {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'http:' || url.protocol === 'https:';
+  } catch {
+    return false;
+  }
 }
 
 function isValidDate(date) {

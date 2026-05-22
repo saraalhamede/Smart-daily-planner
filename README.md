@@ -555,6 +555,16 @@ git switch -c first-version
 - Task In Progress now allows finishing the task or returning it back to Waiting Tasks.
 - Fixed-time tasks now move automatically into progress at their scheduled start time and complete automatically after their end time.
 - The Daily Details page prevents more than one task from being in progress at the same time.
+- Redesigned the Task In Progress container with clear active task details, badges, progress bar, static subtask breakdown, resources UI, and expandable feedback flow.
+- Task progress now updates visually when subtasks are checked, and the Finish Task action is highlighted when all subtasks are complete.
+- Updated Task In Progress feedback so it opens as a centered popup modal instead of expanding inside the active task card.
+- The feedback popup now uses a blurred/darker background, close button, submit button, and keeps the active task card layout clean.
+- Feedback submission now closes the popup automatically and moves the task to Completed, keeps it In Progress, or returns it to Waiting according to the selected result.
+- Fixed Task Resources so `Add image` and `Add link` use the current typed input value and immediately show the added resource chip.
+- Updated `Add image` in Task Resources to open a local computer file picker and show the selected image as a preview chip.
+- Added internet image URL support in Task Resources.
+- Made added links clickable so they open in a new browser tab.
+- Added remove buttons for image and link resource chips.
 
 ### 2026-05-19
 - Added registration-first flow before opening the main planner.
