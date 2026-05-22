@@ -44,11 +44,12 @@ export function generateDailySchedule({
 
   const flexibleTasks = tasks
     .filter((task) => {
-      const taskDate = dateOnly(task.task_date);
       return !task.is_completed &&
         task.status !== 'completed' &&
+        task.status !== 'removed' &&
+        task.status !== 'deleted' &&
         !task.is_fixed_time &&
-        (!taskDate || taskDate === targetDate);
+        shouldTaskAppearOnDate(task, targetDate);
     })
     .map((task) => enrichFlexibleTask(task, feedback))
     .sort((a, b) => scoreTask(b, rescheduleEnergy) - scoreTask(a, rescheduleEnergy));
@@ -197,6 +198,22 @@ function deadlineUrgency(deadline) {
   if (diffHours <= 24) return 35;
   if (diffHours <= 72) return 20;
   return 6;
+}
+
+function shouldTaskAppearOnDate(task, targetDate) {
+  const taskDate = dateOnly(task.task_date);
+  const startDate = taskDate || dateOnly(task.created_at);
+  const deadlineDate = dateOnly(task.deadline);
+
+  if (!deadlineDate) {
+    return !startDate || startDate === targetDate;
+  }
+
+  if (startDate && targetDate < startDate) {
+    return false;
+  }
+
+  return true;
 }
 
 function adjustEnergyFromFeedback(baseEnergy, feedbackContext) {

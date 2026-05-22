@@ -571,6 +571,10 @@ git switch -c first-version
 - Updated the Daily Evaluation productivity score to display as a circular progress indicator with color based on score range.
 - Added a `Restore Task` menu for completed tasks so users can return a completed task to In Progress or Waiting without losing history, feedback, subtasks, or resources.
 - Added Review Mode for past days so ended days open as read-only daily history pages with active task management disabled.
+- Added a soft `Remove Task` action for Waiting Tasks with a confirmation popup; only waiting tasks can be removed.
+- Added multi-day deadline continuation so one task can appear dynamically from its start day until its deadline without duplicating task data.
+- Deadline tasks now show waiting/overdue labels such as `2 days left`, `Deadline today`, and `Overdue`.
+- Completing or removing a deadline task locally prevents it from appearing again in future waiting lists during the current session.
 
 ### 2026-05-19
 - Added registration-first flow before opening the main planner.

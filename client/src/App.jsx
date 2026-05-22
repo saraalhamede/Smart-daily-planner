@@ -202,7 +202,7 @@ export function App() {
             onSelectDay={(day) => {
               setSelectedDay(day);
               setCurrentPage(
-                isPastDayKey(day.key) || hasGeneratedPlanForDay(day.key, schedule, scheduleItems)
+                isPastDayKey(day.key) || hasGeneratedPlanForDay(day.key, schedule, scheduleItems, tasks)
                   ? 'generated'
                   : 'day'
               );
@@ -229,6 +229,14 @@ export function App() {
             latestLog={bootstrap?.latest_daily_log}
             onBack={() => setCurrentPage('day')}
             onWeekly={() => setCurrentPage('weekly')}
+            onTaskStatusChange={(taskId, updates) => {
+              if (!taskId) return;
+              setTasks((currentTasks) => currentTasks.map((task) => (
+                task.task_id === taskId
+                  ? { ...task, ...updates, updated_at: new Date().toISOString() }
+                  : task
+              )));
+            }}
           />
         ) : (
           <>
@@ -609,7 +617,7 @@ function SelectedDayInputPage({
   );
 }
 
-function DailyDetailsPage({ day, schedule, items = [], tasks = [], latestLog, onBack, onWeekly }) {
+function DailyDetailsPage({ day, schedule, items = [], tasks = [], latestLog, onBack, onWeekly, onTaskStatusChange }) {
   const dayKey = day?.key || datePart(schedule?.schedule_date) || toDateKey(new Date());
   const isReviewMode = isPastDayKey(dayKey);
   const [detailItems, setDetailItems] = useState(() => initializeDailyDetailItems({ day, schedule, items, tasks }));
@@ -619,6 +627,7 @@ function DailyDetailsPage({ day, schedule, items = [], tasks = [], latestLog, on
   const [activeTaskUi, setActiveTaskUi] = useState({});
   const [selectedCompletedItemId, setSelectedCompletedItemId] = useState(null);
   const [restoreMenuItemId, setRestoreMenuItemId] = useState(null);
+  const [waitingTaskToRemove, setWaitingTaskToRemove] = useState(null);
   const details = splitDailyDetailItems(detailItems, latestLog);
   const currentTaskId = details.currentTask ? getDetailItemId(details.currentTask) : null;
   const currentTaskUi = details.currentTask
@@ -638,6 +647,7 @@ function DailyDetailsPage({ day, schedule, items = [], tasks = [], latestLog, on
     setActiveTaskUi({});
     setSelectedCompletedItemId(null);
     setRestoreMenuItemId(null);
+    setWaitingTaskToRemove(null);
   }, [dayKey, schedule?.schedule_id, items, tasks]);
 
   useEffect(() => {
@@ -698,6 +708,13 @@ function DailyDetailsPage({ day, schedule, items = [], tasks = [], latestLog, on
           }
         : detailItem
     )));
+    onTaskStatusChange?.(item.task_id, {
+      status: 'completed',
+      is_completed: true,
+      completed_on: dayKey,
+      completed_at: completedAt.toISOString(),
+      remaining_duration_minutes: 0
+    });
     setNotice('Task moved to Completed Tasks.');
   }
 
@@ -709,9 +726,15 @@ function DailyDetailsPage({ day, schedule, items = [], tasks = [], latestLog, on
 
     setDetailItems((currentItems) => currentItems.map((detailItem) => (
       getDetailItemId(detailItem) === getDetailItemId(item)
-        ? { ...detailItem, status: 'waiting' }
+        ? { ...detailItem, status: getWaitingStatusForItem(detailItem, dayKey) }
         : detailItem
     )));
+    onTaskStatusChange?.(item.task_id, {
+      status: 'pending',
+      is_completed: false,
+      completed_on: null,
+      completed_at: null
+    });
     setNotice('Task returned to Waiting Tasks.');
   }
 
@@ -941,16 +964,59 @@ function DailyDetailsPage({ day, schedule, items = [], tasks = [], latestLog, on
       if (getDetailItemId(detailItem) !== itemId) return detailItem;
       return {
         ...detailItem,
-        status: targetStatus,
+        status: targetStatus === 'waiting' ? getWaitingStatusForItem(detailItem, dayKey) : targetStatus,
         restored_at: restoreTime,
         started_at: targetStatus === 'in_progress' ? restoreTime : detailItem.started_at
       };
     }));
+    onTaskStatusChange?.(item.task_id, {
+      status: targetStatus === 'in_progress' ? 'in_progress' : 'pending',
+      is_completed: false,
+      completed_on: null,
+      completed_at: null
+    });
     setRestoreMenuItemId(null);
     setSelectedCompletedItemId((currentId) => (currentId === itemId ? null : currentId));
     setNotice(targetStatus === 'in_progress'
       ? 'Completed task restored to Task In Progress.'
       : 'Completed task restored to Waiting Tasks.');
+  }
+
+  function requestRemoveWaitingTask(item) {
+    if (isReviewMode) {
+      setNotice('Review Mode is read-only. Waiting tasks cannot be removed from a past day.');
+      return;
+    }
+
+    if (item.status !== 'waiting' && item.status !== 'overdue') {
+      setNotice('Only waiting tasks can be removed.');
+      return;
+    }
+
+    setWaitingTaskToRemove(item);
+  }
+
+  function cancelRemoveWaitingTask() {
+    setWaitingTaskToRemove(null);
+  }
+
+  function confirmRemoveWaitingTask() {
+    if (!waitingTaskToRemove) return;
+    const itemId = getDetailItemId(waitingTaskToRemove);
+
+    setDetailItems((currentItems) => currentItems.filter((detailItem) => getDetailItemId(detailItem) !== itemId));
+    setActiveTaskUi((current) => {
+      const next = { ...current };
+      delete next[itemId];
+      return next;
+    });
+    setWaitingTaskToRemove(null);
+    onTaskStatusChange?.(waitingTaskToRemove.task_id, {
+      status: 'removed',
+      is_completed: false,
+      removed_at: new Date().toISOString()
+    });
+    setNotice('Waiting task removed.');
   }
 
   return (
@@ -998,6 +1064,7 @@ function DailyDetailsPage({ day, schedule, items = [], tasks = [], latestLog, on
                   onSaveEdit={saveEdit}
                   onCancelEdit={cancelEdit}
                   onStart={startTask}
+                  onRemove={requestRemoveWaitingTask}
                   isReviewMode={isReviewMode}
                 />
               ))}
@@ -1058,10 +1125,11 @@ function DailyDetailsPage({ day, schedule, items = [], tasks = [], latestLog, on
             <div className="timeline-list">
               {details.timeline.map((item) => (
                 <article className={`timeline-row ${item.status}`} key={getDetailItemId(item)}>
-                  <time>{formatTimeRange(item.start_time, item.end_time)}</time>
+                  <time>{item.is_deadline_continuation ? 'Flexible' : formatTimeRange(item.start_time, item.end_time)}</time>
                   <div>
                     <strong>{item.title}</strong>
                     <span>{item.reason || 'Planned schedule block'}</span>
+                    {item.deadline_label ? <small>{item.deadline_label} - {item.deadline_detail}</small> : null}
                     <em>{formatTaskStatus(item.status)}</em>
                   </div>
                 </article>
@@ -1099,6 +1167,14 @@ function DailyDetailsPage({ day, schedule, items = [], tasks = [], latestLog, on
           item={completedDetailsTask}
           uiState={buildCompletedTaskUiState(completedDetailsTask, activeTaskUi)}
           onClose={() => setSelectedCompletedItemId(null)}
+        />
+      ) : null}
+
+      {waitingTaskToRemove ? (
+        <RemoveWaitingTaskModal
+          item={waitingTaskToRemove}
+          onCancel={cancelRemoveWaitingTask}
+          onConfirm={confirmRemoveWaitingTask}
         />
       ) : null}
 
@@ -1522,6 +1598,42 @@ function CompletedTaskDetailsModal({ item, uiState, onClose }) {
   );
 }
 
+function RemoveWaitingTaskModal({ item, onCancel, onConfirm }) {
+  return (
+    <div className="feedback-modal-backdrop" role="presentation" onClick={onCancel}>
+      <section
+        className="feedback-modal-card confirm-remove-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="remove-waiting-task-title"
+        onClick={(event) => event.stopPropagation()}>
+        <div className="feedback-modal-head">
+          <div>
+            <p className="eyebrow">Remove waiting task</p>
+            <h2 id="remove-waiting-task-title">Are you sure?</h2>
+            <span>{item.title}</span>
+          </div>
+          <button className="modal-close-button" type="button" aria-label="Cancel remove task" onClick={onCancel}>
+            x
+          </button>
+        </div>
+
+        <p className="confirm-remove-copy">Are you sure you want to remove this task?</p>
+
+        <div className="feedback-modal-actions">
+          <button className="secondary-action" type="button" onClick={onCancel}>
+            Cancel
+          </button>
+          <button className="remove-confirm-button" type="button" onClick={onConfirm}>
+            <Trash2 size={16} />
+            Remove
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
 function TaskFeedbackModal({ item, draft, onChange, onClose, onSubmit }) {
   return (
     <div className="feedback-modal-backdrop" role="presentation" onClick={onClose}>
@@ -1630,12 +1742,15 @@ function DailyDetailTaskCard({
   onStart,
   onFinish,
   onReturn,
+  onRemove,
   isReviewMode = false
 }) {
   const isFixed = item.task_kind === 'fixed';
+  const deadlineTone = item.deadline_tone ? `deadline-${item.deadline_tone}` : '';
+  const statusTone = item.status === 'overdue' ? 'overdue' : '';
 
   return (
-    <article className={`detail-task-card ${completed ? 'completed' : ''}`}>
+    <article className={`detail-task-card ${completed ? 'completed' : ''} ${deadlineTone} ${statusTone}`}>
       {isEditing ? (
         <DailyTaskEditForm
           draft={editDraft}
@@ -1647,7 +1762,7 @@ function DailyDetailTaskCard({
         <>
           <div>
             <strong>{item.title}</strong>
-            <span>{formatTimeRange(item.start_time, item.end_time)}</span>
+            <span>{item.is_deadline_continuation ? 'Flexible deadline task' : formatTimeRange(item.start_time, item.end_time)}</span>
           </div>
           <div className="chip-line">
             <span>{isFixed ? 'fixed-time' : 'flexible'}</span>
@@ -1655,6 +1770,12 @@ function DailyDetailTaskCard({
             <span>Priority {item.task?.priority_level || item.priority_level || 3}</span>
             <span>{formatTaskStatus(item.status)}</span>
           </div>
+          {item.deadline_label ? (
+            <div className={`deadline-reminder ${item.deadline_tone || ''}`}>
+              <strong>{item.deadline_label}</strong>
+              <span>{item.deadline_detail}</span>
+            </div>
+          ) : null}
           {showProgress ? (
             <div className="task-progress-line">
               <i style={{ width: `${item.progress || 45}%` }}></i>
@@ -1675,6 +1796,10 @@ function DailyDetailTaskCard({
               <button type="button" onClick={() => onStart?.(item)}>
                 <PlayCircle size={15} />
                 {isFixed ? 'Auto Start' : 'Start'}
+              </button>
+              <button className="danger-soft" type="button" onClick={() => onRemove?.(item)}>
+                <Trash2 size={15} />
+                Remove Task
               </button>
             </div>
           ) : null}
@@ -1964,6 +2089,7 @@ function buildWeeklyDashboardData({ tasks = [], scheduleItems = [], latestLog, w
   });
 
   tasks.forEach((task) => {
+    if (isTaskArchived(task)) return;
     const key = getTaskWeekDateKey(task, scheduleDateByTask, weekKeys);
     if (key) {
       tasksByDay.get(key)?.push(task);
@@ -2073,7 +2199,11 @@ function getDayCircleLabel({ isNewUser, isFuture, totalTasks, rawProgress }) {
 }
 
 function isTaskCompleted(task) {
-  return Boolean(task.is_completed) || task.status === 'completed';
+  return Boolean(task?.is_completed) || task?.status === 'completed';
+}
+
+function isTaskArchived(task) {
+  return ['removed', 'deleted', 'cancelled'].includes(String(task?.status || '').toLowerCase());
 }
 
 function toDateKey(date) {
@@ -2153,8 +2283,9 @@ function initializeDailyDetailItems({ day, schedule, items = [], tasks = [] }) {
   const taskById = new Map(tasks.map((task) => [task.task_id, task]));
   const now = new Date();
 
-  return items
+  const scheduledItems = items
     .filter((item) => !dayKey || datePart(item.start_time) === dayKey || datePart(schedule?.schedule_date) === dayKey)
+    .filter((item) => !isTaskArchived(taskById.get(item.task_id)))
     .map((item, index) => {
       const task = taskById.get(item.task_id);
       const taskKind = item.task_kind || (task?.is_fixed_time ? 'fixed' : 'flexible');
@@ -2165,16 +2296,21 @@ function initializeDailyDetailItems({ day, schedule, items = [], tasks = [] }) {
         task_kind: taskKind,
         status: normalizeDailyTaskStatus(item, task, taskKind, now)
       };
-      return detailItem;
-    })
-    .sort((a, b) => new Date(a.start_time) - new Date(b.start_time));
+      return withDeadlineDisplay(detailItem, task, dayKey || datePart(item.start_time));
+    });
+
+  const scheduledTaskIds = new Set(scheduledItems.map((item) => item.task_id).filter(Boolean));
+  const continuationItems = buildDeadlineContinuationItems({ dayKey, tasks, scheduledTaskIds });
+
+  return [...scheduledItems, ...continuationItems]
+    .sort((a, b) => getDetailSortTime(a) - getDetailSortTime(b));
 }
 
 function splitDailyDetailItems(detailItems, latestLog) {
-  const sortedItems = [...detailItems].sort((a, b) => new Date(a.start_time) - new Date(b.start_time));
+  const sortedItems = [...detailItems].sort((a, b) => getDetailSortTime(a) - getDetailSortTime(b));
   const currentTask = sortedItems.find((item) => item.status === 'in_progress') || null;
   const completedTasks = sortedItems.filter((item) => item.status === 'completed');
-  const waitingTasks = sortedItems.filter((item) => item.status === 'waiting');
+  const waitingTasks = sortedItems.filter((item) => item.status === 'waiting' || item.status === 'overdue');
   const advice = buildDailyAdvice({ waitingTasks, completedTasks, currentTask, latestLog, dayItems: sortedItems });
 
   return {
@@ -2189,6 +2325,7 @@ function splitDailyDetailItems(detailItems, latestLog) {
 function normalizeDailyTaskStatus(item, task, taskKind, now) {
   if (item.status === 'completed' || task?.is_completed) return 'completed';
   if (item.status === 'in_progress' || item.status === 'active') return 'in_progress';
+  if (item.status === 'overdue') return 'overdue';
 
   if (taskKind === 'fixed') {
     const start = new Date(item.start_time);
@@ -2197,7 +2334,141 @@ function normalizeDailyTaskStatus(item, task, taskKind, now) {
     if (isValidDate(start) && isValidDate(end) && now >= start && now < end) return 'in_progress';
   }
 
+  const itemDayKey = datePart(item.start_time) || datePart(item.task_date);
+  if (getDeadlineState(task || item, itemDayKey).tone === 'overdue') return 'overdue';
+
   return 'waiting';
+}
+
+function buildDeadlineContinuationItems({ dayKey, tasks = [], scheduledTaskIds }) {
+  if (!dayKey) return [];
+
+  return tasks
+    .filter((task) => shouldDisplayDeadlineTaskOnDay(task, dayKey, scheduledTaskIds))
+    .map((task, index) => {
+      const deadlineState = getDeadlineState(task, dayKey);
+      const taskCompleted = isTaskCompleted(task);
+
+      return withDeadlineDisplay({
+        detail_id: `deadline_${task.task_id || index}_${dayKey}`,
+        schedule_item_id: null,
+        task_id: task.task_id,
+        title: task.title,
+        category: task.category,
+        difficulty_level: task.difficulty_level,
+        priority_level: task.priority_level,
+        start_time: `${dayKey}T23:58:00`,
+        end_time: `${dayKey}T23:59:00`,
+        energy_slot: 'flexible',
+        task_kind: 'flexible',
+        status: taskCompleted ? 'completed' : deadlineState.tone === 'overdue' ? 'overdue' : 'waiting',
+        reason: taskCompleted
+          ? 'Completed on this day and removed from future deadline lists.'
+          : deadlineState.tone === 'overdue'
+          ? 'Deadline passed, but the task is still unfinished.'
+          : 'Continues from its start day until the deadline.',
+        task,
+        is_deadline_continuation: true
+      }, task, dayKey);
+    });
+}
+
+function shouldDisplayDeadlineTaskOnDay(task, dayKey, scheduledTaskIds = new Set()) {
+  if (!task || !task.deadline || task.is_fixed_time) return false;
+  if (scheduledTaskIds.has(task.task_id)) return false;
+  if (isTaskArchived(task)) return false;
+  if (isTaskCompleted(task)) return getTaskCompletionDayKey(task) === dayKey;
+
+  const startKey = getTaskStartDayKey(task);
+  if (startKey && dayKey < startKey) return false;
+
+  return true;
+}
+
+function withDeadlineDisplay(item, task, dayKey) {
+  const deadlineState = getDeadlineState(task || item, dayKey);
+  if (!deadlineState.label) return item;
+
+  return {
+    ...item,
+    status: item.status === 'waiting' && deadlineState.tone === 'overdue' ? 'overdue' : item.status,
+    deadline_label: deadlineState.label,
+    deadline_detail: deadlineState.detail,
+    deadline_tone: deadlineState.tone
+  };
+}
+
+function getDeadlineState(task, dayKey) {
+  const deadlineKey = getTaskDeadlineDayKey(task);
+  if (!deadlineKey || !dayKey) {
+    return { tone: '', label: '', detail: '' };
+  }
+
+  const daysLeft = getCalendarDayDiff(dayKey, deadlineKey);
+  const detail = `Deadline: ${formatDeadlineDay(deadlineKey)}`;
+
+  if (daysLeft < 0) {
+    return { tone: 'overdue', label: 'Overdue', detail };
+  }
+
+  if (daysLeft === 0) {
+    return { tone: 'due', label: 'Deadline today', detail };
+  }
+
+  if (daysLeft === 1) {
+    return { tone: 'close', label: '1 day left', detail };
+  }
+
+  return {
+    tone: daysLeft <= 3 ? 'warning' : 'early',
+    label: `${daysLeft} days left`,
+    detail
+  };
+}
+
+function getWaitingStatusForItem(item, dayKey) {
+  return getDeadlineState(item.task || item, dayKey).tone === 'overdue' ? 'overdue' : 'waiting';
+}
+
+function getTaskStartDayKey(task) {
+  return datePart(task?.task_date) || datePart(task?.created_at);
+}
+
+function getTaskDeadlineDayKey(task) {
+  return datePart(task?.deadline);
+}
+
+function getTaskCompletionDayKey(task) {
+  return datePart(task?.completed_on) || datePart(task?.completed_at);
+}
+
+function getCalendarDayDiff(fromKey, toKey) {
+  const fromTime = getDayKeyUtcTime(fromKey);
+  const toTime = getDayKeyUtcTime(toKey);
+  if (fromTime === null || toTime === null) return 0;
+  return Math.round((toTime - fromTime) / 86400000);
+}
+
+function getDayKeyUtcTime(dayKey) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dayKey || '')) return null;
+  const [year, month, day] = dayKey.split('-').map(Number);
+  return Date.UTC(year, month - 1, day);
+}
+
+function formatDeadlineDay(dayKey) {
+  const date = new Date(`${dayKey}T00:00:00`);
+  if (!isValidDate(date)) return dayKey;
+  return new Intl.DateTimeFormat('en', {
+    weekday: 'short',
+    day: '2-digit',
+    month: '2-digit'
+  }).format(date);
+}
+
+function getDetailSortTime(item) {
+  const date = new Date(item.start_time);
+  if (isValidDate(date)) return date.getTime();
+  return Number.MAX_SAFE_INTEGER;
 }
 
 function applyFixedTimeAutomation(items, now) {
@@ -2437,6 +2708,13 @@ function getProductivityScoreTone(score) {
 }
 
 function getPlannedDurationMinutes(item) {
+  if (item.is_deadline_continuation) {
+    const estimated = Number.parseInt(
+      item.task?.remaining_duration_minutes || item.task?.estimated_duration_minutes || item.estimated_duration_minutes,
+      10
+    );
+    if (!Number.isNaN(estimated) && estimated > 0) return estimated;
+  }
   return getDurationMinutes(item.start_time, item.end_time);
 }
 
@@ -2520,6 +2798,7 @@ function getDetailItemId(item) {
 
 function formatTaskStatus(status) {
   if (status === 'in_progress') return 'in progress';
+  if (status === 'overdue') return 'overdue';
   return status || 'waiting';
 }
 
@@ -2607,9 +2886,14 @@ function buildDailyAdvice({ waitingTasks, completedTasks, currentTask, latestLog
   return notes;
 }
 
-function hasGeneratedPlanForDay(dayKey, schedule, items) {
-  if (!dayKey || !schedule || items.length === 0) return false;
-  return datePart(schedule.schedule_date) === dayKey || items.some((item) => datePart(item.start_time) === dayKey);
+function hasGeneratedPlanForDay(dayKey, schedule, items = [], tasks = []) {
+  if (!dayKey) return false;
+  const hasScheduledPlan = Boolean(schedule) && (
+    datePart(schedule.schedule_date) === dayKey ||
+    items.some((item) => datePart(item.start_time) === dayKey)
+  );
+  const hasDeadlineContinuation = tasks.some((task) => shouldDisplayDeadlineTaskOnDay(task, dayKey));
+  return hasScheduledPlan || hasDeadlineContinuation;
 }
 
 function formatTimeRange(start, end) {

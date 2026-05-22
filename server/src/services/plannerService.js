@@ -269,8 +269,7 @@ function findFixedConflict(existingTasks, newTask) {
 
 function deriveTaskDate(input) {
   if (input.is_fixed_time && input.fixed_date) return input.fixed_date;
-  if (input.deadline) return String(input.deadline).slice(0, 10);
-  return null;
+  return new Date().toISOString().slice(0, 10);
 }
 
 function latestRecord(records, field = 'created_at') {
