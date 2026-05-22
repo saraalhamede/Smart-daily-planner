@@ -8,6 +8,8 @@ import {
   ChevronRight,
   Clock3,
   Database,
+  BrainCircuit,
+  Gauge,
   Flame,
   ListChecks,
   Lock,
@@ -18,6 +20,7 @@ import {
   SlidersHorizontal,
   Sparkles,
   Target,
+  TrendingUp,
   Trash2
 } from 'lucide-react';
 import { plannerApi } from './api/plannerApi.js';
@@ -186,6 +189,7 @@ export function App() {
       onLogout={handleLogout}
       onOpenAbout={() => setCurrentPage('about')}
       onOpenCalendar={() => setCurrentPage('calendar')}
+      onOpenAiNotes={() => setCurrentPage('ai-notes')}
       onOpenPlanner={() => setCurrentPage('weekly')}>
       <main className="workspace">
         {profileMode ? (
@@ -210,6 +214,14 @@ export function App() {
               setDetailsBackPage('calendar');
               setCurrentPage('generated');
             }}
+          />
+        ) : currentPage === 'ai-notes' ? (
+          <AiNotesPage
+            tasks={tasks}
+            scheduleItems={scheduleItems}
+            dailyLogs={bootstrap?.daily_logs || []}
+            latestLog={bootstrap?.latest_daily_log}
+            isLoading={isLoading}
           />
         ) : currentPage === 'weekly' ? (
           <WeeklyDashboard
@@ -633,6 +645,205 @@ function CalendarPage({ tasks = [], scheduleItems = [], dailyLogs = [], isLoadin
         </section>
       </div>
     </section>
+  );
+}
+
+function AiNotesPage({ tasks = [], scheduleItems = [], dailyLogs = [], latestLog, isLoading }) {
+  const [period, setPeriod] = useState('weekly');
+  const insights = buildAiNotesInsights({ tasks, scheduleItems, dailyLogs, latestLog, period });
+
+  if (isLoading) {
+    return <div className="empty-state">Loading AI notes...</div>;
+  }
+
+  return (
+    <section className="ai-notes-page">
+      <div className="ai-notes-hero">
+        <div>
+          <p className="eyebrow">AI Notes</p>
+          <h1>Smart Insights</h1>
+          <span className="toolbar-copy">
+            Adaptive observations about productivity, energy, mood, time planning, and focus behavior.
+          </span>
+        </div>
+        <div className="period-switch" aria-label="AI notes period">
+          {['daily', 'weekly', 'monthly'].map((item) => (
+            <button
+              className={period === item ? 'active' : ''}
+              type="button"
+              key={item}
+              onClick={() => setPeriod(item)}>
+              {item}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {insights.hasEnoughData ? null : (
+        <div className="ai-empty-state">
+          <BrainCircuit size={42} />
+          <div>
+            <strong>No enough data yet for personalized insights.</strong>
+            <span>Start completing tasks and daily check-ins to help the system learn your patterns.</span>
+          </div>
+        </div>
+      )}
+
+      <div className="ai-kpi-grid">
+        {insights.kpis.map((item) => (
+          <article className={`ai-kpi-card ${item.tone}`} key={item.label}>
+            <item.icon size={24} />
+            <strong>{item.value}</strong>
+            <span>{item.label}</span>
+          </article>
+        ))}
+      </div>
+
+      <div className="ai-insight-grid">
+        <InsightCard
+          icon={TrendingUp}
+          title="Productivity Insights"
+          eyebrow="Work rhythm"
+          headline={insights.productivity.headline}
+          description={insights.productivity.description}
+          visual={<MiniBars values={insights.productivity.chart} tone="productivity" />}
+        />
+        <InsightCard
+          icon={Gauge}
+          title="Energy Pattern Insights"
+          eyebrow="Focus energy"
+          headline={insights.energy.headline}
+          description={insights.energy.description}
+          visual={<MiniLine values={insights.energy.chart} />}
+        />
+        <InsightCard
+          icon={Flame}
+          title="Mood / Stress Insights"
+          eyebrow="Emotional trend"
+          headline={insights.mood.headline}
+          description={insights.mood.description}
+          visual={<MoodTrendDots values={insights.mood.chart} />}
+        />
+        <InsightCard
+          icon={Clock3}
+          title="Time Management Insights"
+          eyebrow="Plan vs actual"
+          headline={insights.time.headline}
+          description={insights.time.description}
+          visual={<DurationCompare planned={insights.time.planned} actual={insights.time.actual} />}
+        />
+      </div>
+
+      <div className="ai-recommendation-grid">
+        <section className="ai-recommendation-card">
+          <div className="section-title-row">
+            <div>
+              <p className="eyebrow">Focus Recommendations</p>
+              <h2>Better Work Pattern</h2>
+            </div>
+            <Target size={30} />
+          </div>
+          <div className="recommendation-list">
+            {insights.recommendations.map((item) => (
+              <article key={item}>
+                <Sparkles size={17} />
+                <span>{item}</span>
+              </article>
+            ))}
+          </div>
+        </section>
+
+        <section className="ai-recommendation-card adaptive-card">
+          <div className="section-title-row">
+            <div>
+              <p className="eyebrow">Smart Adaptive Suggestions</p>
+              <h2>How the Scheduler Adapts</h2>
+            </div>
+            <BrainCircuit size={30} />
+          </div>
+          <div className="adaptive-flow">
+            {insights.adaptiveSuggestions.map((item, index) => (
+              <article key={item}>
+                <strong>{index + 1}</strong>
+                <span>{item}</span>
+              </article>
+            ))}
+          </div>
+        </section>
+      </div>
+    </section>
+  );
+}
+
+function InsightCard({ icon: Icon, eyebrow, title, headline, description, visual }) {
+  return (
+    <article className="ai-insight-card">
+      <div className="ai-insight-head">
+        <Icon size={26} />
+        <div>
+          <p className="eyebrow">{eyebrow}</p>
+          <h2>{title}</h2>
+        </div>
+      </div>
+      <div className="ai-visual-slot">{visual}</div>
+      <strong>{headline}</strong>
+      <span>{description}</span>
+    </article>
+  );
+}
+
+function MiniBars({ values, tone }) {
+  return (
+    <div className={`mini-bars ${tone || ''}`} aria-hidden="true">
+      {values.map((value, index) => (
+        <i key={`${value}-${index}`} style={{ height: `${Math.max(12, value)}%` }}></i>
+      ))}
+    </div>
+  );
+}
+
+function MiniLine({ values }) {
+  const points = values.map((value, index) => {
+    const x = values.length <= 1 ? 50 : (index / (values.length - 1)) * 100;
+    const y = 100 - Math.max(8, Math.min(92, value));
+    return `${x},${y}`;
+  }).join(' ');
+
+  return (
+    <svg className="mini-line" viewBox="0 0 100 100" aria-hidden="true">
+      <polyline points={points} />
+      {values.map((value, index) => {
+        const x = values.length <= 1 ? 50 : (index / (values.length - 1)) * 100;
+        const y = 100 - Math.max(8, Math.min(92, value));
+        return <circle cx={x} cy={y} r="3.8" key={`${value}-${index}`} />;
+      })}
+    </svg>
+  );
+}
+
+function MoodTrendDots({ values }) {
+  return (
+    <div className="mood-dot-row" aria-hidden="true">
+      {values.map((value, index) => (
+        <i className={value >= 4 ? 'high' : value >= 3 ? 'medium' : 'low'} key={`${value}-${index}`}></i>
+      ))}
+    </div>
+  );
+}
+
+function DurationCompare({ planned, actual }) {
+  const maxValue = Math.max(planned, actual, 1);
+  return (
+    <div className="duration-compare" aria-hidden="true">
+      <span>
+        <em style={{ width: `${(planned / maxValue) * 100}%` }}></em>
+        Planned {planned}m
+      </span>
+      <span>
+        <em style={{ width: `${(actual / maxValue) * 100}%` }}></em>
+        Actual {actual}m
+      </span>
+    </div>
   );
 }
 
@@ -2421,6 +2632,147 @@ function buildCalendarMonthData({ visibleMonth, tasks = [], scheduleItems = [], 
       focusHours: Math.round((focusHours / 60) * 10) / 10
     }
   };
+}
+
+function buildAiNotesInsights({ tasks = [], scheduleItems = [], dailyLogs = [], latestLog, period }) {
+  const periodStart = getInsightsPeriodStart(period);
+  const filteredLogs = dailyLogs.filter((log) => new Date(datePart(log.log_date) || log.created_at) >= periodStart);
+  const filteredTasks = tasks.filter((task) => {
+    const taskDate = datePart(task.completed_on) || datePart(task.completed_at) || datePart(task.task_date) || datePart(task.created_at);
+    return !taskDate || new Date(`${taskDate}T00:00:00`) >= periodStart;
+  });
+  const filteredItems = scheduleItems.filter((item) => new Date(item.start_time) >= periodStart);
+  const completedTasks = filteredTasks.filter(isTaskCompleted);
+  const hasEnoughData = filteredTasks.length >= 2 || filteredLogs.length >= 2 || filteredItems.length >= 2;
+  const completionRate = filteredTasks.length ? Math.round((completedTasks.length / filteredTasks.length) * 100) : 0;
+  const averageEnergy = averageNumber(filteredLogs.map((log) => log.predicted_energy_level || log.energy_level));
+  const averageStress = averageNumber(filteredLogs.map((log) => log.stress_level));
+  const productiveHour = getMostProductiveHour(filteredItems, completedTasks);
+  const hardTasks = filteredTasks.filter((task) => Number.parseInt(task.difficulty_level, 10) >= 4);
+  const plannedMinutes = Math.round(averageNumber(completedTasks.map((task) => task.estimated_duration_minutes)));
+  const actualMinutes = Math.round(averageNumber(completedTasks.map((task) => task.actual_duration_minutes || task.estimated_duration_minutes)));
+  const difficultyText = hardTasks.length > 0
+    ? 'Hard tasks need stronger focus blocks and should be placed in high-energy hours.'
+    : 'Medium and easy tasks are currently the safest planning pattern.';
+
+  const recommendations = [
+    averageEnergy && averageEnergy <= 2.5
+      ? 'Use shorter sessions and add more breaks when energy is low.'
+      : 'Schedule difficult tasks earlier in the day while your energy is stable.',
+    averageStress && averageStress >= 3.5
+      ? 'Reduce task overload tomorrow and keep one flexible recovery block.'
+      : 'Keep a balanced task mix to protect mood and focus.',
+    actualMinutes > plannedMinutes
+      ? 'Give similar tasks more time because recent tasks took longer than planned.'
+      : 'Your time estimates are mostly stable, so the scheduler can trust your durations.',
+    'Use feedback after each task so future planning becomes more personalized.'
+  ];
+
+  return {
+    hasEnoughData,
+    kpis: [
+      { label: 'Completion Rate', value: `${completionRate}%`, tone: completionRate >= 70 ? 'good' : completionRate >= 45 ? 'medium' : 'low', icon: CheckCircle2 },
+      { label: 'Avg Energy', value: averageEnergy ? `${averageEnergy.toFixed(1)}/5` : '--', tone: averageEnergy >= 3.5 ? 'good' : averageEnergy >= 2.5 ? 'medium' : 'low', icon: Gauge },
+      { label: 'Stress Signal', value: averageStress ? stressLabel(Math.round(averageStress)) : 'none', tone: averageStress >= 4 ? 'low' : averageStress >= 3 ? 'medium' : 'good', icon: Flame },
+      { label: 'Focus Window', value: productiveHour, tone: 'good', icon: Clock3 }
+    ],
+    productivity: {
+      headline: completionRate >= 70 ? 'Strong productivity pattern detected.' : 'Productivity still needs more consistent data.',
+      description: productiveHour === 'No data'
+        ? 'Complete more tasks so the system can find your best working hours.'
+        : `You currently complete more work around ${productiveHour}. ${difficultyText}`,
+      chart: buildCompletionChart(filteredTasks)
+    },
+    energy: {
+      headline: averageEnergy ? `Average energy is ${averageEnergy.toFixed(1)} out of 5.` : 'Energy pattern is still learning.',
+      description: averageEnergy && averageEnergy <= 2.5
+        ? 'The scheduler should avoid placing heavy tasks during low-energy periods.'
+        : 'Your energy is stable enough for balanced planning with focused work blocks.',
+      chart: buildLogMetricChart(filteredLogs, 'energy_level')
+    },
+    mood: {
+      headline: averageStress >= 3.5 ? 'Stress is affecting the planning pattern.' : 'Mood and stress look manageable.',
+      description: averageStress >= 3.5
+        ? 'High-stress days should use fewer hard tasks and more short breaks.'
+        : 'Balanced task days are likely helping keep stress under control.',
+      chart: buildLogMetricValues(filteredLogs, 'stress_level')
+    },
+    time: {
+      headline: actualMinutes > plannedMinutes ? 'Tasks are taking longer than planned.' : 'Time estimates look stable.',
+      description: actualMinutes > plannedMinutes
+        ? 'The system should increase planned time for similar tasks in future schedules.'
+        : 'Planned duration and actual duration are close enough for reliable scheduling.',
+      planned: plannedMinutes || 30,
+      actual: actualMinutes || plannedMinutes || 30
+    },
+    recommendations,
+    adaptiveSuggestions: [
+      'Hard tasks are moved toward high-energy hours when the user reports better energy.',
+      'The scheduler increases urgency when deadlines get closer.',
+      'Recent feedback changes future recommendations instead of replacing the core rule-based algorithm.',
+      averageStress >= 3.5
+        ? 'Stress increased recently, so future plans should reduce heavy task density.'
+        : 'Stress is stable, so future plans can keep a balanced workload.'
+    ]
+  };
+}
+
+function getInsightsPeriodStart(period) {
+  const now = new Date();
+  if (period === 'daily') {
+    return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  }
+  if (period === 'monthly') {
+    return new Date(now.getFullYear(), now.getMonth(), 1);
+  }
+  const weekStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - now.getDay());
+  return weekStart;
+}
+
+function averageNumber(values) {
+  const numbers = values
+    .map((value) => Number.parseFloat(value))
+    .filter((value) => !Number.isNaN(value));
+  if (numbers.length === 0) return 0;
+  return numbers.reduce((sum, value) => sum + value, 0) / numbers.length;
+}
+
+function getMostProductiveHour(scheduleItems, completedTasks) {
+  const completedIds = new Set(completedTasks.map((task) => task.task_id));
+  const hourCounts = new Map();
+
+  scheduleItems.forEach((item) => {
+    if (completedIds.size > 0 && item.task_id && !completedIds.has(item.task_id)) return;
+    const date = new Date(item.start_time);
+    if (!isValidDate(date)) return;
+    const hour = date.getHours();
+    hourCounts.set(hour, (hourCounts.get(hour) || 0) + 1);
+  });
+
+  if (hourCounts.size === 0) return 'No data';
+
+  const bestHour = [...hourCounts.entries()].sort((a, b) => b[1] - a[1])[0][0];
+  return `${String(bestHour).padStart(2, '0')}:00`;
+}
+
+function buildCompletionChart(tasks) {
+  const recentTasks = tasks.slice(-6);
+  const source = recentTasks.length > 0 ? recentTasks : Array.from({ length: 6 }, () => null);
+  return source.map((task, index) => {
+    if (!task) return [28, 42, 35, 58, 48, 66][index] || 35;
+    return isTaskCompleted(task) ? 86 : 32;
+  });
+}
+
+function buildLogMetricChart(logs, field) {
+  const values = buildLogMetricValues(logs, field);
+  return values.map((value) => value * 20);
+}
+
+function buildLogMetricValues(logs, field) {
+  const source = logs.slice(-7);
+  if (source.length === 0) return [2, 3, 3, 4, 3, 2, 3];
+  return source.map((log) => Number.parseInt(log[field] || log.predicted_energy_level, 10) || 3);
 }
 
 function getMonthCalendarDays(monthDate) {

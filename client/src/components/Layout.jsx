@@ -19,6 +19,7 @@ export function Layout({
   onOpenAbout,
   onOpenPlanner,
   onOpenCalendar,
+  onOpenAiNotes,
   children
 }) {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -102,6 +103,9 @@ export function Layout({
                 }
                 if (item.action === 'weekly') {
                   onOpenPlanner?.();
+                }
+                if (item.label === 'AI Notes') {
+                  onOpenAiNotes?.();
                 }
                 setIsMenuOpen(false);
               }}>

@@ -578,6 +578,9 @@ git switch -c first-version
 - Added a separate monthly `Calendar` page from the sidebar, independent from the Weekly Dashboard.
 - The Calendar page now shows month navigation, productivity colors, day indicators, deadline strips, filters, today highlight, and a compact monthly summary.
 - Bootstrap now returns all daily logs so the Calendar can display month-level mood/stress and AI insight indicators.
+- Added a separate `AI Notes` dashboard page from the sidebar.
+- AI Notes now shows daily/weekly/monthly insight modes, KPI cards, productivity insights, energy patterns, mood/stress trends, time-management comparisons, focus recommendations, and adaptive scheduler suggestions.
+- The AI Notes page uses analytics-style cards and mini charts instead of a chatbot layout.
 
 ### 2026-05-19
 - Added registration-first flow before opening the main planner.
