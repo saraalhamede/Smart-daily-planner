@@ -584,12 +584,17 @@ function DailyDetailsPage({ day, schedule, items = [], tasks = [], latestLog, on
   const [editingItemId, setEditingItemId] = useState(null);
   const [editDraft, setEditDraft] = useState(null);
   const [activeTaskUi, setActiveTaskUi] = useState({});
+  const [selectedCompletedItemId, setSelectedCompletedItemId] = useState(null);
   const details = splitDailyDetailItems(detailItems, latestLog);
   const currentTaskId = details.currentTask ? getDetailItemId(details.currentTask) : null;
   const currentTaskUi = details.currentTask
     ? activeTaskUi[currentTaskId] || buildActiveTaskUiState(details.currentTask)
     : null;
   const feedbackTask = currentTaskUi?.feedbackOpen ? details.currentTask : null;
+  const completedDetailsTask = selectedCompletedItemId
+    ? details.completedTasks.find((item) => getDetailItemId(item) === selectedCompletedItemId)
+    : null;
+  const dailyEvaluation = buildDailyEvaluation(details, activeTaskUi, latestLog);
 
   useEffect(() => {
     setDetailItems(initializeDailyDetailItems({ day, schedule, items, tasks }));
@@ -597,6 +602,7 @@ function DailyDetailsPage({ day, schedule, items = [], tasks = [], latestLog, on
     setEditingItemId(null);
     setEditDraft(null);
     setActiveTaskUi({});
+    setSelectedCompletedItemId(null);
   }, [dayKey, schedule?.schedule_id, items, tasks]);
 
   useEffect(() => {
@@ -629,16 +635,22 @@ function DailyDetailsPage({ day, schedule, items = [], tasks = [], latestLog, on
 
     setDetailItems((currentItems) => currentItems.map((detailItem) => (
       getDetailItemId(detailItem) === getDetailItemId(item)
-        ? { ...detailItem, status: 'in_progress' }
+        ? { ...detailItem, status: 'in_progress', started_at: detailItem.started_at || new Date().toISOString() }
         : detailItem
     )));
     setNotice('Task moved to In Progress.');
   }
 
   function finishTask(item) {
+    const completedAt = new Date();
     setDetailItems((currentItems) => currentItems.map((detailItem) => (
       getDetailItemId(detailItem) === getDetailItemId(item)
-        ? { ...detailItem, status: 'completed', completed_at: new Date().toISOString() }
+        ? {
+            ...detailItem,
+            status: 'completed',
+            completed_at: completedAt.toISOString(),
+            actual_duration_minutes: calculateActualDurationMinutes(detailItem, completedAt)
+          }
         : detailItem
     )));
     setNotice('Task moved to Completed Tasks.');
@@ -760,10 +772,12 @@ function DailyDetailsPage({ day, schedule, items = [], tasks = [], latestLog, on
     const currentState = activeTaskUi[getDetailItemId(item)] || buildActiveTaskUiState(item);
     const outcome = currentState.feedbackDraft.outcome;
 
-    updateActiveTaskUi(item, {
+    updateActiveTaskUi(item, (state) => ({
+      ...state,
       feedbackOpen: false,
+      lastFeedback: currentState.feedbackDraft,
       feedbackDraft: getDefaultProgressFeedbackDraft()
-    });
+    }));
 
     if (outcome === 'completed') {
       finishTask(item);
@@ -876,11 +890,18 @@ function DailyDetailsPage({ day, schedule, items = [], tasks = [], latestLog, on
           {details.completedTasks.length === 0 ? (
             <p className="no-results">No completed tasks yet</p>
           ) : (
-            <div className="detail-task-list">
-              {details.completedTasks.map((item) => (
-                <DailyDetailTaskCard item={item} key={getDetailItemId(item)} completed />
-              ))}
-            </div>
+            <>
+              <div className="completed-task-list">
+                {details.completedTasks.map((item) => (
+                  <CompletedTaskCard
+                    item={item}
+                    key={getDetailItemId(item)}
+                    onOpen={() => setSelectedCompletedItemId(getDetailItemId(item))}
+                  />
+                ))}
+              </div>
+              <DailyEvaluationCard evaluation={dailyEvaluation} />
+            </>
           )}
         </section>
 
@@ -925,6 +946,14 @@ function DailyDetailsPage({ day, schedule, items = [], tasks = [], latestLog, on
           onChange={(updates) => updateFeedbackDraft(feedbackTask, updates)}
           onClose={() => closeFeedbackPopup(feedbackTask)}
           onSubmit={() => submitProgressFeedback(feedbackTask)}
+        />
+      ) : null}
+
+      {completedDetailsTask ? (
+        <CompletedTaskDetailsModal
+          item={completedDetailsTask}
+          uiState={buildCompletedTaskUiState(completedDetailsTask, activeTaskUi)}
+          onClose={() => setSelectedCompletedItemId(null)}
         />
       ) : null}
 
@@ -990,6 +1019,60 @@ function DailyDetailsCardHeader({ icon: Icon, eyebrow, title }) {
       </div>
       <Icon size={26} />
     </div>
+  );
+}
+
+function CompletedTaskCard({ item, onOpen }) {
+  const evaluation = buildCompletedTaskEvaluation(item);
+
+  return (
+    <button className="completed-task-card" type="button" onClick={onOpen}>
+      <div className="completed-task-main">
+        <div>
+          <strong>{item.title}</strong>
+          <span>{formatTimeRange(item.start_time, item.end_time)}</span>
+        </div>
+        <em>Completed</em>
+      </div>
+      <div className="completed-task-stats">
+        <span><strong>Planned</strong>{evaluation.plannedLabel}</span>
+        <span><strong>Actual</strong>{evaluation.actualLabel}</span>
+        <span><strong>Completed</strong>{formatTime(item.completed_at || item.end_time)}</span>
+      </div>
+      <p className={`task-evaluation-message ${evaluation.tone}`}>{evaluation.message}</p>
+    </button>
+  );
+}
+
+function DailyEvaluationCard({ evaluation }) {
+  const scoreTone = getProductivityScoreTone(evaluation.productivityScore);
+
+  return (
+    <section className="daily-evaluation-card">
+      <div className="mini-section-head">
+        <div>
+          <h4>Daily Evaluation</h4>
+          <span>Overall result for the selected day.</span>
+        </div>
+      </div>
+
+      <div className="daily-evaluation-body">
+        <div
+          className={`productivity-score-circle ${scoreTone}`}
+          style={{ '--score': `${evaluation.productivityScore}%` }}>
+          <div>
+            <strong>{evaluation.productivityScore}%</strong>
+            <span>Productivity</span>
+          </div>
+        </div>
+
+        <div className="daily-evaluation-summary">
+          <span><strong>{evaluation.completedTasks} / {evaluation.totalTasks}</strong>Completed tasks</span>
+          <span><strong>{evaluation.completionPercentage}%</strong>Completion</span>
+          <p>{evaluation.message}</p>
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -1146,7 +1229,7 @@ function ResourceChip({ resource, onRemove }) {
   );
 
   return (
-    <span className={`resource-chip ${resource.type}`}>
+    <span className={`resource-chip ${resource.type} ${onRemove ? '' : 'readonly'}`}>
       {resource.type === 'link' ? (
         <a href={resource.value} target="_blank" rel="noreferrer">
           {chipContent}
@@ -1154,10 +1237,109 @@ function ResourceChip({ resource, onRemove }) {
       ) : (
         chipContent
       )}
-      <button type="button" aria-label={`Remove ${resource.label}`} onClick={onRemove}>
-        x
-      </button>
+      {onRemove ? (
+        <button type="button" aria-label={`Remove ${resource.label}`} onClick={onRemove}>
+          x
+        </button>
+      ) : null}
     </span>
+  );
+}
+
+function CompletedTaskDetailsModal({ item, uiState, onClose }) {
+  const evaluation = buildCompletedTaskEvaluation(item);
+  const completedSubtasks = uiState.subtasks.filter((subtask) => subtask.completed).length;
+  const totalSubtasks = uiState.subtasks.length || 1;
+  const progress = Math.round((completedSubtasks / totalSubtasks) * 100);
+  const feedback = uiState.lastFeedback;
+
+  return (
+    <div className="feedback-modal-backdrop" role="presentation" onClick={onClose}>
+      <section
+        className="feedback-modal-card completed-details-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="completed-task-details-title"
+        onClick={(event) => event.stopPropagation()}>
+        <div className="feedback-modal-head">
+          <div>
+            <p className="eyebrow">Read-only summary</p>
+            <h2 id="completed-task-details-title">Completed Task Details</h2>
+            <span>{item.title}</span>
+          </div>
+          <button className="modal-close-button" type="button" aria-label="Close completed task details" onClick={onClose}>
+            x
+          </button>
+        </div>
+
+        <div className="completed-details-grid">
+          <span><strong>Task type</strong>{formatTaskKind(item.task_kind)}</span>
+          <span><strong>Category</strong>{item.task?.category || item.category || 'General'}</span>
+          <span><strong>Priority</strong>{priorityLabel(item.task?.priority_level || item.priority_level)}</span>
+          <span><strong>Difficulty</strong>{difficultyLabel(item.difficulty_level || item.task?.difficulty_level)}</span>
+          <span><strong>Planned start</strong>{formatTime(item.start_time)}</span>
+          <span><strong>Planned end</strong>{formatTime(item.end_time)}</span>
+          <span><strong>Planned duration</strong>{evaluation.plannedLabel}</span>
+          <span><strong>Actual duration</strong>{evaluation.actualLabel}</span>
+          <span><strong>Completion time</strong>{formatTime(item.completed_at || item.end_time)}</span>
+          <span><strong>Progress</strong>{progress}%</span>
+        </div>
+
+        <section className="completed-details-section">
+          <div className="mini-section-head">
+            <div>
+              <h4>Task Breakdown</h4>
+              <span>{completedSubtasks}/{totalSubtasks} completed</span>
+            </div>
+          </div>
+          <div className="completed-check-list">
+            {uiState.subtasks.map((subtask) => (
+              <span key={subtask.id}>Done - {subtask.title}</span>
+            ))}
+          </div>
+        </section>
+
+        <section className="completed-details-section">
+          <div className="mini-section-head">
+            <div>
+              <h4>Resources</h4>
+              <span>Attached images and links</span>
+            </div>
+          </div>
+          {uiState.resources.length === 0 ? (
+            <p className="resource-empty">No resources were attached to this task.</p>
+          ) : (
+            <div className="resource-chip-list">
+              {uiState.resources.map((resource) => (
+                <ResourceChip key={resource.id} resource={resource} />
+              ))}
+            </div>
+          )}
+        </section>
+
+        <section className="completed-details-section">
+          <div className="mini-section-head">
+            <div>
+              <h4>User Feedback</h4>
+              <span>Submitted after working on the task</span>
+            </div>
+          </div>
+          {feedback ? (
+            <div className="completed-feedback-grid">
+              <span><strong>Result</strong>{feedback.outcome === 'completed' ? 'Completed' : formatTaskStatus(feedback.outcome)}</span>
+              <span><strong>Difficulty</strong>{feedback.difficulty_feedback || '-'}</span>
+              <span><strong>Energy</strong>{feedback.energy_after || '-'}</span>
+              <span><strong>Mood</strong>{feedback.mood_after || '-'}</span>
+              <p>{feedback.comment || 'No comment was added.'}</p>
+            </div>
+          ) : (
+            <p className="resource-empty">No feedback was submitted for this task yet.</p>
+          )}
+        </section>
+
+        <p className={`task-evaluation-message ${evaluation.tone}`}>{evaluation.message}</p>
+      </section>
+    </div>
   );
 }
 
@@ -1837,7 +2019,13 @@ function applyFixedTimeAutomation(items, now) {
     const end = new Date(item.end_time);
     if (!isValidDate(start) || !isValidDate(end)) return item;
     if (now >= end && item.status !== 'completed') {
-      return { ...item, status: 'completed', completed_at: now.toISOString() };
+      return {
+        ...item,
+        status: 'completed',
+        started_at: item.started_at || item.start_time,
+        completed_at: now.toISOString(),
+        actual_duration_minutes: calculateActualDurationMinutes({ ...item, started_at: item.started_at || item.start_time }, now)
+      };
     }
     return item;
   });
@@ -1866,7 +2054,7 @@ function applyFixedTimeAutomation(items, now) {
       if (item.status !== 'in_progress') {
         notice = 'Fixed-time task started and was moved to In Progress.';
       }
-      return { ...item, status: 'in_progress' };
+      return { ...item, status: 'in_progress', started_at: item.started_at || now.toISOString() };
     }
     if (currentActive && itemId === getDetailItemId(currentActive) && item.task_kind !== 'fixed') {
       notice = 'Fixed-time task started and was moved to In Progress.';
@@ -1910,7 +2098,8 @@ function buildActiveTaskUiState(item) {
     imageDraft: '',
     linkDraft: '',
     feedbackOpen: false,
-    feedbackDraft: getDefaultProgressFeedbackDraft()
+    feedbackDraft: getDefaultProgressFeedbackDraft(),
+    lastFeedback: null
   };
 }
 
@@ -1931,6 +2120,171 @@ function getDefaultProgressFeedbackDraft() {
     mood_after: '',
     comment: ''
   };
+}
+
+function buildCompletedTaskUiState(item, activeTaskUi) {
+  const state = activeTaskUi[getDetailItemId(item)] || buildActiveTaskUiState(item);
+  return {
+    ...state,
+    subtasks: state.subtasks.map((subtask) => ({ ...subtask, completed: true }))
+  };
+}
+
+function buildCompletedTaskEvaluation(item) {
+  const plannedMinutes = getPlannedDurationMinutes(item);
+  const actualMinutes = getActualDurationMinutes(item);
+  const tolerance = Math.max(5, Math.round((plannedMinutes || 0) * 0.15));
+  const diff = actualMinutes - plannedMinutes;
+
+  if (!plannedMinutes || !actualMinutes) {
+    return {
+      plannedMinutes,
+      actualMinutes,
+      plannedLabel: formatMinutesLabel(plannedMinutes),
+      actualLabel: formatMinutesLabel(actualMinutes),
+      tone: 'neutral',
+      message: 'Task completed. More timing data will improve future evaluation.'
+    };
+  }
+
+  if (diff > tolerance) {
+    return {
+      plannedMinutes,
+      actualMinutes,
+      plannedLabel: formatMinutesLabel(plannedMinutes),
+      actualLabel: formatMinutesLabel(actualMinutes),
+      tone: 'longer',
+      message: 'This task took longer than expected. Consider giving similar tasks more time next time.'
+    };
+  }
+
+  if (diff < -tolerance) {
+    return {
+      plannedMinutes,
+      actualMinutes,
+      plannedLabel: formatMinutesLabel(plannedMinutes),
+      actualLabel: formatMinutesLabel(actualMinutes),
+      tone: 'faster',
+      message: 'Good progress. You finished faster than planned.'
+    };
+  }
+
+  return {
+    plannedMinutes,
+    actualMinutes,
+    plannedLabel: formatMinutesLabel(plannedMinutes),
+    actualLabel: formatMinutesLabel(actualMinutes),
+    tone: 'on-time',
+    message: 'Great timing. You finished this task as expected.'
+  };
+}
+
+function buildDailyEvaluation(details, activeTaskUi, latestLog) {
+  const totalTasks = details.timeline.length;
+  const completedTasks = details.completedTasks.length;
+  const unfinishedTasks = Math.max(0, totalTasks - completedTasks);
+  const completionPercentage = totalTasks ? Math.round((completedTasks / totalTasks) * 100) : 0;
+  const durationScores = details.completedTasks.map((item) => {
+    const evaluation = buildCompletedTaskEvaluation(item);
+    if (!evaluation.plannedMinutes || !evaluation.actualMinutes) return 70;
+    const ratio = Math.abs(evaluation.actualMinutes - evaluation.plannedMinutes) / evaluation.plannedMinutes;
+    return Math.max(35, Math.round(100 - Math.min(65, ratio * 100)));
+  });
+  const durationScore = durationScores.length
+    ? Math.round(durationScores.reduce((sum, score) => sum + score, 0) / durationScores.length)
+    : 50;
+  const feedbackScores = details.completedTasks.map((item) => {
+    const feedback = activeTaskUi[getDetailItemId(item)]?.lastFeedback;
+    if (!feedback) return 70;
+    const energy = Number.parseInt(feedback.energy_after, 10);
+    const mood = Number.parseInt(feedback.mood_after, 10);
+    const energyScore = Number.isNaN(energy) ? 70 : energy * 20;
+    const moodScore = Number.isNaN(mood) ? 70 : mood * 20;
+    return Math.round((energyScore + moodScore) / 2);
+  });
+  const feedbackScore = feedbackScores.length
+    ? Math.round(feedbackScores.reduce((sum, score) => sum + score, 0) / feedbackScores.length)
+    : 70;
+  const energyLevel = Number.parseInt(latestLog?.predicted_energy_level || latestLog?.energy_level, 10);
+  const lowEnergyBonus = !Number.isNaN(energyLevel) && energyLevel <= 2 && completionPercentage >= 50 ? 5 : 0;
+  const unfinishedPenalty = unfinishedTasks * 4;
+  const productivityScore = clampScore(Math.round(
+    completionPercentage * 0.52 +
+    durationScore * 0.28 +
+    feedbackScore * 0.15 +
+    lowEnergyBonus -
+    unfinishedPenalty
+  ));
+
+  return {
+    totalTasks,
+    completedTasks,
+    unfinishedTasks,
+    completionPercentage,
+    productivityScore,
+    message: getDailyEvaluationMessage(productivityScore)
+  };
+}
+
+function getDailyEvaluationMessage(score) {
+  if (score >= 90) {
+    return 'Excellent day. You completed almost everything and managed your time very well.';
+  }
+  if (score >= 70) {
+    return 'Good progress. You completed many tasks and stayed mostly on track.';
+  }
+  if (score >= 50) {
+    return 'Moderate day. You completed some tasks, but there is room for better planning.';
+  }
+  return 'Challenging day. Try using shorter tasks and more breaks tomorrow.';
+}
+
+function getProductivityScoreTone(score) {
+  if (score >= 90) return 'green';
+  if (score >= 70) return 'purple';
+  if (score >= 50) return 'orange';
+  return 'red';
+}
+
+function getPlannedDurationMinutes(item) {
+  return getDurationMinutes(item.start_time, item.end_time);
+}
+
+function getActualDurationMinutes(item) {
+  const explicit = Number.parseInt(item.actual_duration_minutes || item.task?.actual_duration_minutes, 10);
+  if (!Number.isNaN(explicit) && explicit > 0) return explicit;
+
+  const actualStart = item.started_at || item.actual_start_time || item.start_time;
+  const actualEnd = item.completed_at || item.actual_end_time || item.end_time;
+  return getDurationMinutes(actualStart, actualEnd) || getPlannedDurationMinutes(item);
+}
+
+function calculateActualDurationMinutes(item, completedAt = new Date()) {
+  const startedAt = new Date(item.started_at || item.actual_start_time || item.start_time);
+  if (isValidDate(startedAt) && isValidDate(completedAt) && completedAt > startedAt) {
+    return Math.max(1, Math.round((completedAt - startedAt) / 60000));
+  }
+  return getPlannedDurationMinutes(item);
+}
+
+function getDurationMinutes(start, end) {
+  const startDate = new Date(start);
+  const endDate = new Date(end);
+  if (!isValidDate(startDate) || !isValidDate(endDate) || endDate <= startDate) return 0;
+  return Math.max(1, Math.round((endDate - startDate) / 60000));
+}
+
+function formatMinutesLabel(minutes) {
+  if (!minutes) return '--';
+  if (minutes < 60) return `${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  if (remainingMinutes === 0) return `${hours} ${hours === 1 ? 'hour' : 'hours'}`;
+  return `${hours}h ${remainingMinutes}m`;
+}
+
+function clampScore(score) {
+  return Math.max(0, Math.min(100, score));
 }
 
 function applyDailyTaskEdit(item, draft, dayKey) {

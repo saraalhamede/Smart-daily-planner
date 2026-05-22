@@ -565,6 +565,10 @@ git switch -c first-version
 - Added internet image URL support in Task Resources.
 - Made added links clickable so they open in a new browser tab.
 - Added remove buttons for image and link resource chips.
+- Redesigned the Completed Tasks container with compact completed task cards, planned vs actual duration, completion time, and task evaluation messages.
+- Added a Daily Evaluation summary with completed count, total planned tasks, completion percentage, productivity score, and a friendly daily message.
+- Added a read-only Completed Task Details popup with task metadata, timing, progress, completed breakdown, resources, feedback, and system evaluation.
+- Updated the Daily Evaluation productivity score to display as a circular progress indicator with color based on score range.
 
 ### 2026-05-19
 - Added registration-first flow before opening the main planner.

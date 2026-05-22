@@ -1910,6 +1910,279 @@ input:disabled {
   background: rgba(246, 249, 255, 0.9);
 }
 
+.completed-task-list {
+  display: grid;
+  gap: 12px;
+}
+
+.completed-task-card {
+  display: grid;
+  width: 100%;
+  gap: 11px;
+  border: 1px solid rgba(44, 168, 107, 0.24);
+  border-radius: 22px;
+  padding: 15px;
+  color: var(--ink);
+  background:
+    radial-gradient(circle at top right, rgba(44, 168, 107, 0.12), transparent 10rem),
+    #eefaf4;
+  box-shadow: 0 10px 22px rgba(31, 57, 112, 0.06);
+  text-align: left;
+  transition:
+    transform 160ms ease,
+    box-shadow 160ms ease,
+    border-color 160ms ease;
+}
+
+.completed-task-card:hover {
+  border-color: rgba(44, 168, 107, 0.48);
+  box-shadow: 0 16px 28px rgba(31, 57, 112, 0.11);
+  transform: translateY(-2px);
+}
+
+.completed-task-main {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.completed-task-main strong {
+  display: block;
+  color: var(--brand-dark);
+  font-size: 1.04rem;
+}
+
+.completed-task-main span {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 0.9rem;
+  font-weight: 850;
+}
+
+.completed-task-main em {
+  flex: 0 0 auto;
+  border-radius: 999px;
+  padding: 6px 10px;
+  color: #1f7a50;
+  background: #dff7eb;
+  font-size: 0.78rem;
+  font-style: normal;
+  font-weight: 1000;
+}
+
+.completed-task-stats,
+.daily-evaluation-stats,
+.completed-details-grid,
+.completed-feedback-grid {
+  display: grid;
+  gap: 9px;
+}
+
+.completed-task-stats {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.completed-task-stats span,
+.daily-evaluation-stats span,
+.completed-details-grid span,
+.completed-feedback-grid span {
+  display: grid;
+  gap: 3px;
+  border: 1px solid var(--line);
+  border-radius: 15px;
+  padding: 9px 10px;
+  color: var(--brand-dark);
+  background: rgba(255, 255, 255, 0.76);
+  font-size: 0.86rem;
+  font-weight: 1000;
+}
+
+.completed-task-stats strong,
+.daily-evaluation-stats strong,
+.completed-details-grid strong,
+.completed-feedback-grid strong {
+  color: var(--muted);
+  font-size: 0.7rem;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.task-evaluation-message {
+  margin: 0;
+  border-radius: 16px;
+  padding: 10px 12px;
+  color: var(--brand-dark);
+  background: #e8f0ff;
+  font-size: 0.9rem;
+  font-weight: 900;
+  line-height: 1.35;
+}
+
+.task-evaluation-message.on-time,
+.task-evaluation-message.faster {
+  color: #1f7a50;
+  background: #dff7eb;
+}
+
+.task-evaluation-message.longer {
+  color: #9d6414;
+  background: #fff4d9;
+}
+
+.daily-evaluation-card,
+.completed-details-section {
+  display: grid;
+  gap: 12px;
+  border: 1px solid rgba(215, 226, 245, 0.9);
+  border-radius: 22px;
+  padding: 14px;
+  background: rgba(255, 255, 255, 0.82);
+}
+
+.daily-evaluation-card {
+  margin-top: 14px;
+}
+
+.daily-evaluation-body {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 16px;
+  align-items: center;
+}
+
+.productivity-score-circle {
+  --score-color: var(--brand);
+  --score-bg: #e8f0ff;
+  display: grid;
+  width: 142px;
+  height: 142px;
+  place-items: center;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at center, #ffffff 0 56%, transparent 57%),
+    conic-gradient(var(--score-color) var(--score), var(--score-bg) 0);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.82),
+    0 18px 34px rgba(31, 57, 112, 0.14);
+}
+
+.productivity-score-circle.red {
+  --score-color: var(--rose);
+  --score-bg: #ffe1e9;
+}
+
+.productivity-score-circle.orange {
+  --score-color: var(--amber);
+  --score-bg: #fff4d9;
+}
+
+.productivity-score-circle.purple {
+  --score-color: var(--brand);
+  --score-bg: #e8f0ff;
+}
+
+.productivity-score-circle.green {
+  --score-color: var(--green);
+  --score-bg: #dff7eb;
+}
+
+.productivity-score-circle > div {
+  display: grid;
+  width: 92px;
+  height: 92px;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--brand-dark);
+  background: #ffffff;
+  text-align: center;
+  box-shadow: 0 8px 18px rgba(31, 57, 112, 0.08);
+}
+
+.productivity-score-circle strong {
+  font-size: 1.7rem;
+  line-height: 0.95;
+  letter-spacing: -0.055em;
+}
+
+.productivity-score-circle span {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 1000;
+  text-transform: uppercase;
+}
+
+.daily-evaluation-summary {
+  display: grid;
+  gap: 10px;
+}
+
+.daily-evaluation-summary span {
+  display: grid;
+  gap: 3px;
+  border: 1px solid var(--line);
+  border-radius: 15px;
+  padding: 10px 12px;
+  color: var(--brand-dark);
+  background: rgba(255, 255, 255, 0.78);
+  font-size: 0.9rem;
+  font-weight: 1000;
+}
+
+.daily-evaluation-summary strong {
+  color: var(--teal);
+  font-size: 1.15rem;
+}
+
+.daily-evaluation-summary p {
+  margin: 0;
+  border-radius: 17px;
+  padding: 12px 13px;
+  color: var(--brand-dark);
+  background: #f6f9ff;
+  font-weight: 900;
+  line-height: 1.4;
+}
+
+.completed-details-modal {
+  width: min(860px, 100%);
+  max-height: min(86vh, 880px);
+  overflow-y: auto;
+}
+
+.completed-details-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.completed-check-list {
+  display: grid;
+  gap: 8px;
+}
+
+.completed-check-list span {
+  border: 1px solid rgba(44, 168, 107, 0.24);
+  border-radius: 16px;
+  padding: 10px 12px;
+  color: #1f7a50;
+  background: #eefaf4;
+  font-weight: 900;
+}
+
+.completed-feedback-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.completed-feedback-grid p {
+  grid-column: 1 / -1;
+  margin: 0;
+  border-radius: 16px;
+  padding: 11px 12px;
+  color: var(--brand-dark);
+  background: #f6f9ff;
+  font-weight: 900;
+}
+
 .in-progress-task-card {
   display: grid;
   gap: 16px;
@@ -2129,6 +2402,10 @@ input:disabled {
   background: #f6f9ff;
   font-size: 0.82rem;
   font-weight: 900;
+}
+
+.resource-chip.readonly {
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .resource-chip > span,
@@ -2574,8 +2851,20 @@ input:disabled {
   .field-grid,
   .field-grid.two,
   .metric-grid,
-  .feedback-grid {
+  .feedback-grid,
+  .completed-task-stats,
+  .completed-details-grid,
+  .completed-feedback-grid {
     grid-template-columns: 1fr;
+  }
+
+  .daily-evaluation-body {
+    grid-template-columns: 1fr;
+    justify-items: center;
+  }
+
+  .daily-evaluation-summary {
+    width: 100%;
   }
 
   .feedback-modal-form .feedback-grid {
