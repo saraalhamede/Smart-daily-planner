@@ -12,8 +12,33 @@ async function many(sql, params = {}) {
 
 function cleanRecord(record) {
   return Object.fromEntries(
-    Object.entries(record).filter(([, value]) => value !== undefined)
+    Object.entries(record)
+      .filter(([, value]) => value !== undefined)
+      .map(([key, value]) => [key, normalizeMysqlValue(value)])
   );
+}
+
+function normalizeMysqlValue(value) {
+  if (value instanceof Date) {
+    return formatMysqlDateTime(value);
+  }
+  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(value)) {
+    return formatMysqlDateTime(new Date(value));
+  }
+  return value;
+}
+
+function formatMysqlDateTime(date) {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return null;
+  return [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, '0'),
+    String(date.getDate()).padStart(2, '0')
+  ].join('-') + ' ' + [
+    String(date.getHours()).padStart(2, '0'),
+    String(date.getMinutes()).padStart(2, '0'),
+    String(date.getSeconds()).padStart(2, '0')
+  ].join(':');
 }
 
 async function insert(table, record, executor = pool) {
@@ -138,6 +163,15 @@ async function listFeedbackForScheduleItems(scheduleItemIds) {
 }
 
 export const mysqlStore = {
+  async healthCheck() {
+    const row = await one('SELECT DATABASE() AS database_name, 1 AS connected');
+    return {
+      connected: row?.connected === 1,
+      database: row?.database_name || null,
+      store: 'mysql'
+    };
+  },
+
   getUser(userId) {
     return one('SELECT * FROM users WHERE user_id = :userId', { userId });
   },

@@ -206,8 +206,8 @@ CREATE TABLE IF NOT EXISTS daily_evaluations (
 );
 
 INSERT INTO users (user_id, full_name, email, password_hash, profile_image)
-VALUES ('user_demo', 'Sara Alhamede', 'sara@smart-planner.local', 'dev:demo123', NULL)
-ON DUPLICATE KEY UPDATE full_name = VALUES(full_name), email = VALUES(email);
+SELECT 'user_demo', 'Sara Alhamede', 'sara@smart-planner.local', 'dev:demo123', NULL
+WHERE NOT EXISTS (SELECT 1 FROM users LIMIT 1);
 
 INSERT INTO user_preferences (
   preference_id,
@@ -222,7 +222,7 @@ INSERT INTO user_preferences (
   theme,
   ai_recommendations_enabled,
   notifications_enabled
-) VALUES (
+) SELECT
   'pref_demo',
   'user_demo',
   '07:00:00',
@@ -235,4 +235,5 @@ INSERT INTO user_preferences (
   'Blue / Teal',
   TRUE,
   TRUE
-) ON DUPLICATE KEY UPDATE user_id = VALUES(user_id);
+WHERE EXISTS (SELECT 1 FROM users WHERE user_id = 'user_demo')
+  AND NOT EXISTS (SELECT 1 FROM user_preferences WHERE user_id = 'user_demo');

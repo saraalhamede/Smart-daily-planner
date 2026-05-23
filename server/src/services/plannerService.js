@@ -7,6 +7,15 @@ import { getStore } from '../data/store.js';
 
 const store = await getStore();
 
+export async function getHealth() {
+  const database = await store.healthCheck();
+  return {
+    status: database.connected ? 'ok' : 'error',
+    server: 'ok',
+    database
+  };
+}
+
 export async function registerUser(input) {
   const fullName = String(input.full_name || `${input.first_name || ''} ${input.last_name || ''}`).trim();
   const email = normalizeEmail(input.email);
@@ -47,6 +56,28 @@ export async function loginUser(input) {
 
   const preferences = await store.getUserPreferences(user.user_id);
   return buildAuthPayload(user, preferences);
+}
+
+export async function updateUserProfile(userId, input) {
+  const existing = await store.getUser(userId);
+  if (!existing) throw createHttpError(404, 'User not found.');
+
+  const updates = {
+    full_name: input.full_name || `${input.first_name || ''} ${input.last_name || ''}`.trim() || undefined,
+    email: input.email ? normalizeEmail(input.email) : undefined,
+    profile_image: input.profile_image ?? undefined,
+    updated_at: new Date().toISOString()
+  };
+
+  if (input.password) {
+    if (String(input.password).trim().length < 6) {
+      throw createHttpError(400, 'Password must be at least 6 characters.');
+    }
+    updates.password_hash = await hashPassword(String(input.password).trim());
+  }
+
+  const user = await store.updateUser(userId, cleanUndefined(updates));
+  return { user: stripSensitiveUser(user) };
 }
 
 export async function getBootstrap(userId) {
@@ -101,6 +132,64 @@ export async function getBootstrap(userId) {
 
 export async function getTasks(userId) {
   return store.listTasks(userId);
+}
+
+export async function getDailyCheckins(userId) {
+  const dailyCheckins = await store.listDailyLogs(userId);
+  return {
+    daily_checkins: dailyCheckins,
+    daily_logs: dailyCheckins
+  };
+}
+
+export async function getTaskFeedback(userId) {
+  return { task_feedback: await store.listFeedback(userId) };
+}
+
+export async function getUserPreferences(userId) {
+  return { preferences: await store.getUserPreferences(userId) };
+}
+
+export async function getSchedules(userId) {
+  const [schedules, scheduleItems, dailyEvaluations, aiNotes] = await Promise.all([
+    store.listSchedules(userId),
+    store.listAllScheduleItems(userId),
+    store.listDailyEvaluations(userId),
+    store.listAiNotes(userId)
+  ]);
+
+  return {
+    schedules,
+    schedule_items: scheduleItems,
+    daily_evaluations: dailyEvaluations,
+    ai_notes: aiNotes
+  };
+}
+
+export async function getDailyDetails(userId, date) {
+  if (!date) throw createHttpError(400, 'date is required.');
+  await autoTransitionFixedTasks(userId, date);
+
+  const [schedule, items, tasks, dailyLogs, feedback, aiNotes, dailyEvaluations] = await Promise.all([
+    store.getScheduleByDate(userId, date),
+    store.listScheduleItemsForDate(userId, date),
+    store.listTasks(userId),
+    store.listDailyLogs(userId),
+    store.listFeedback(userId),
+    store.listAiNotes(userId),
+    store.listDailyEvaluations(userId)
+  ]);
+
+  return {
+    schedule,
+    items,
+    schedule_items: items,
+    tasks,
+    daily_checkin: dailyLogs.find((log) => dateOnly(log.log_date) === date) || null,
+    task_feedback: feedback.filter((item) => !item.schedule_item_id || items.some((scheduleItem) => scheduleItem.schedule_item_id === item.schedule_item_id)),
+    ai_notes: aiNotes.filter((note) => dateOnly(note.note_date || note.created_at) === date),
+    daily_evaluation: dailyEvaluations.find((evaluation) => dateOnly(evaluation.evaluation_date) === date) || null
+  };
 }
 
 export async function createDailyLog(input) {

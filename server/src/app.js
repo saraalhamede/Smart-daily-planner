@@ -2,6 +2,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import express from 'express';
 import { apiRouter } from './routes/api.js';
+import { getHealth } from './services/plannerService.js';
 
 dotenv.config({ override: true });
 
@@ -23,8 +24,13 @@ export function createApp() {
   }));
   app.use(express.json({ limit: '1mb' }));
 
-  app.get('/api/health', (_req, res) => {
-    res.json({ status: 'ok' });
+  app.get('/api/health', async (_req, res, next) => {
+    try {
+      const health = await getHealth();
+      res.status(health.status === 'ok' ? 200 : 500).json(health);
+    } catch (error) {
+      next(error);
+    }
   });
 
   app.use('/api', apiRouter);
@@ -32,7 +38,8 @@ export function createApp() {
   app.use((error, _req, res, _next) => {
     console.error(error);
     res.status(error.status || 500).json({
-      error: error.message || 'Internal server error'
+      error: error.message || 'Internal server error',
+      status: error.status || 500
     });
   });
 

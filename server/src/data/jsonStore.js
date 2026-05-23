@@ -63,6 +63,15 @@ async function insert(collection, record) {
 }
 
 export const jsonStore = {
+  async healthCheck() {
+    await readData();
+    return {
+      connected: true,
+      database: 'server/data/app-data.json',
+      store: 'json'
+    };
+  },
+
   async getUser(userId) {
     const data = await readData();
     return data.users.find((item) => item.user_id === userId) || null;

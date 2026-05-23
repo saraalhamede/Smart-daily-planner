@@ -39,7 +39,6 @@ import { TaskList } from './components/TaskList.jsx';
 
 const demoUserId = 'user_demo';
 const registrationKey = 'smartPlannerRegisteredUser';
-const settingsKey = 'smartPlannerSettings';
 const notificationReadKey = 'smartPlannerReadNotifications';
 const notificationRemovedKey = 'smartPlannerRemovedNotifications';
 const notificationFilters = ['All', 'Unread', 'Tasks', 'System', 'Overdue'];
@@ -158,6 +157,7 @@ export function App() {
         setPlannerSettings(preferencesToSettings(data.preferences, plannerSettings, data.user));
       }
     } catch (error) {
+      console.error('[App] Failed to load planner data', error);
       setMessage(error.message);
     } finally {
       setIsLoading(false);
@@ -257,7 +257,7 @@ export function App() {
     } else {
       setMessage('Feedback saved.');
     }
-    await refreshTasks();
+    await loadBootstrap();
   }
 
   async function handleRegister(payload) {
@@ -283,8 +283,14 @@ export function App() {
       email: payload.email.trim(),
       profile_image: payload.profile_image || localUser?.profile_image || ''
     };
-    localStorage.setItem(registrationKey, JSON.stringify(registeredUser));
-    setLocalUser(registeredUser);
+    const result = await plannerApi.updateUser(activeUserId, {
+      ...registeredUser,
+      password: payload.password || ''
+    });
+    const savedUser = normalizeAuthUser(result.user);
+    localStorage.setItem(registrationKey, JSON.stringify(savedUser));
+    setLocalUser(savedUser);
+    setBootstrap((current) => ({ ...(current || {}), user: result.user }));
     setProfileMode(null);
   }
 
@@ -1889,6 +1895,32 @@ function DailyDetailsPage({
   }, [dayKey, schedule?.schedule_id, items, tasks]);
 
   useEffect(() => {
+    if (!userId || !dayKey) return undefined;
+    let isCancelled = false;
+    plannerApi.getDailyDetails(userId, dayKey)
+      .then((data) => {
+        if (isCancelled) return;
+        const nextItems = initializeDailyDetailItems({
+          day,
+          schedule: data.schedule || schedule,
+          items: data.items || data.schedule_items || [],
+          tasks: data.tasks || tasks
+        });
+        setDetailItems(nextItems);
+        setActiveTaskUi(buildActiveTaskUiFromItems(nextItems));
+      })
+      .catch((error) => {
+        if (!isCancelled) {
+          console.error('[DailyDetailsPage] Failed to load daily details', error);
+          setNotice(error.message);
+        }
+      });
+    return () => {
+      isCancelled = true;
+    };
+  }, [userId, dayKey]);
+
+  useEffect(() => {
     function refreshFixedTasks() {
       setDetailItems((currentItems) => {
         const result = applyFixedTimeAutomation(currentItems, new Date());
@@ -3474,12 +3506,7 @@ function readRegisteredUser() {
 }
 
 function readPlannerSettings() {
-  try {
-    const saved = localStorage.getItem(settingsKey);
-    return mergeSettings(defaultSettings, saved ? JSON.parse(saved) : {});
-  } catch {
-    return defaultSettings;
-  }
+  return defaultSettings;
 }
 
 function readStoredList(key) {

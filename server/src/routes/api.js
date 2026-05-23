@@ -4,9 +4,14 @@ import {
   createDailyLog,
   createTask,
   deleteTaskResource,
+  getDailyCheckins,
+  getDailyDetails,
   generateSchedule,
   getBootstrap,
+  getSchedules,
+  getTaskFeedback,
   getTasks,
+  getUserPreferences,
   loginUser,
   registerUser,
   removeTask,
@@ -14,7 +19,8 @@ import {
   submitFeedback,
   updateScheduleItemStatus,
   updateSubtask,
-  updateTask
+  updateTask,
+  updateUserProfile
 } from '../services/plannerService.js';
 
 export const apiRouter = Router();
@@ -51,9 +57,35 @@ apiRouter.get('/tasks', async (req, res, next) => {
   }
 });
 
+apiRouter.put('/users/:userId', async (req, res, next) => {
+  try {
+    res.json(await updateUserProfile(req.params.userId, req.body));
+  } catch (error) {
+    next(error);
+  }
+});
+
+apiRouter.get('/daily-checkins', async (req, res, next) => {
+  try {
+    res.json(await getDailyCheckins(req.query.userId || 'user_demo'));
+  } catch (error) {
+    next(error);
+  }
+});
+
+apiRouter.post('/daily-checkins', async (req, res, next) => {
+  try {
+    const dailyCheckin = await createDailyLog(req.body);
+    res.status(201).json({ daily_checkin: dailyCheckin, daily_log: dailyCheckin });
+  } catch (error) {
+    next(error);
+  }
+});
+
 apiRouter.post('/daily-logs', async (req, res, next) => {
   try {
-    res.status(201).json({ daily_log: await createDailyLog(req.body) });
+    const dailyLog = await createDailyLog(req.body);
+    res.status(201).json({ daily_log: dailyLog, daily_checkin: dailyLog });
   } catch (error) {
     next(error);
   }
@@ -86,6 +118,30 @@ apiRouter.delete('/tasks/:taskId', async (req, res, next) => {
 apiRouter.post('/schedules/generate', async (req, res, next) => {
   try {
     res.status(201).json(await generateSchedule(req.body));
+  } catch (error) {
+    next(error);
+  }
+});
+
+apiRouter.get('/schedules', async (req, res, next) => {
+  try {
+    res.json(await getSchedules(req.query.userId || 'user_demo'));
+  } catch (error) {
+    next(error);
+  }
+});
+
+apiRouter.get('/daily-details', async (req, res, next) => {
+  try {
+    res.json(await getDailyDetails(req.query.userId || 'user_demo', req.query.date));
+  } catch (error) {
+    next(error);
+  }
+});
+
+apiRouter.get('/feedback', async (req, res, next) => {
+  try {
+    res.json(await getTaskFeedback(req.query.userId || 'user_demo'));
   } catch (error) {
     next(error);
   }
@@ -134,6 +190,14 @@ apiRouter.delete('/resources/:resourceId', async (req, res, next) => {
 apiRouter.put('/preferences/:userId', async (req, res, next) => {
   try {
     res.json({ preferences: await saveUserPreferences(req.params.userId, req.body) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+apiRouter.get('/preferences/:userId', async (req, res, next) => {
+  try {
+    res.json(await getUserPreferences(req.params.userId));
   } catch (error) {
     next(error);
   }

@@ -275,7 +275,8 @@ function energyLabel(value) {
 }
 
 function combineDateAndTime(date, time) {
-  return new Date(`${date}T${time}:00`);
+  const normalizedTime = String(time || '00:00').slice(0, 5);
+  return new Date(`${date}T${normalizedTime}:00`);
 }
 
 function dateOnly(value) {
