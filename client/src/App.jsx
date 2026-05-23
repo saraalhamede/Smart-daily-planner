@@ -4327,12 +4327,10 @@ function buildDailyAdvice({ waitingTasks, completedTasks, currentTask, latestLog
 
 function hasGeneratedPlanForDay(dayKey, schedule, items = [], tasks = []) {
   if (!dayKey) return false;
-  const hasScheduledPlan = Boolean(schedule) && (
+  return Boolean(schedule) && (
     datePart(schedule.schedule_date) === dayKey ||
     items.some((item) => datePart(item.start_time) === dayKey)
   );
-  const hasDeadlineContinuation = tasks.some((task) => shouldDisplayDeadlineTaskOnDay(task, dayKey));
-  return hasScheduledPlan || hasDeadlineContinuation;
 }
 
 function formatTimeRange(start, end) {
