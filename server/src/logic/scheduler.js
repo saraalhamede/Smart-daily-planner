@@ -63,6 +63,7 @@ export function generateDailySchedule({
     end_time: task.end_time,
     energy_slot: 'fixed',
     task_kind: 'fixed',
+    priority_level: task.priority_level,
     reason: 'Fixed-time task reserved by the user.'
   }));
 
@@ -86,6 +87,7 @@ export function generateDailySchedule({
           end_time: end.toISOString(),
           energy_slot: energyLabel(rescheduleEnergy),
           task_kind: 'flexible',
+          priority_level: task.priority_level,
           reason: buildReason(task, rescheduleEnergy, feedbackContext)
         });
         task.remaining_minutes -= blockMinutes;

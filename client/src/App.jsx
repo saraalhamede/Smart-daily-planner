@@ -37,15 +37,17 @@ import { ScheduleView } from './components/ScheduleView.jsx';
 import { TaskForm } from './components/TaskForm.jsx';
 import { TaskList } from './components/TaskList.jsx';
 
-const userId = 'user_demo';
+const demoUserId = 'user_demo';
 const registrationKey = 'smartPlannerRegisteredUser';
 const settingsKey = 'smartPlannerSettings';
 const notificationReadKey = 'smartPlannerReadNotifications';
 const notificationRemovedKey = 'smartPlannerRemovedNotifications';
 const notificationFilters = ['All', 'Unread', 'Tasks', 'System', 'Overdue'];
 const defaultLocalUser = {
+  user_id: demoUserId,
   first_name: 'Sara',
   last_name: 'Alhamede',
+  full_name: 'Sara Alhamede',
   email: 'sara@smart-planner.local',
   profile_image: ''
 };
@@ -123,6 +125,7 @@ export function App() {
   const [removedNotificationIds, setRemovedNotificationIds] = useState(() => readStoredList(notificationRemovedKey));
   const [isLoading, setIsLoading] = useState(true);
   const isRegistered = Boolean(localUser);
+  const activeUserId = localUser?.user_id || demoUserId;
   const profileUser = buildProfileUser(localUser, bootstrap?.user);
   const notifications = buildNotifications({
     tasks,
@@ -141,16 +144,19 @@ export function App() {
     } else {
       setIsLoading(false);
     }
-  }, [isRegistered]);
+  }, [isRegistered, activeUserId]);
 
   async function loadBootstrap() {
     setIsLoading(true);
     try {
-      const data = await plannerApi.bootstrap(userId);
+      const data = await plannerApi.bootstrap(activeUserId);
       setBootstrap(data);
       setTasks(data.tasks || []);
       setSchedule(data.latest_schedule || null);
-      setScheduleItems(data.latest_schedule_items || []);
+      setScheduleItems(data.schedule_items || data.latest_schedule_items || []);
+      if (data.preferences) {
+        setPlannerSettings(preferencesToSettings(data.preferences, plannerSettings, data.user));
+      }
     } catch (error) {
       setMessage(error.message);
     } finally {
@@ -159,29 +165,65 @@ export function App() {
   }
 
   async function refreshTasks() {
-    const data = await plannerApi.getTasks(userId);
+    const data = await plannerApi.getTasks(activeUserId);
     setTasks(data.tasks || []);
   }
 
   async function handleDailyLogSubmit(payload) {
-    const result = await plannerApi.createDailyLog({ ...payload, user_id: userId });
-    setBootstrap((current) => ({ ...(current || {}), latest_daily_log: result.daily_log }));
+    const result = await plannerApi.createDailyLog({ ...payload, user_id: activeUserId });
+    setBootstrap((current) => {
+      const nextLogs = upsertById(current?.daily_logs || [], result.daily_log, 'log_id');
+      return {
+        ...(current || {}),
+        daily_logs: nextLogs,
+        daily_checkins: nextLogs,
+        latest_daily_log: result.daily_log,
+        latest_daily_checkin: result.daily_log
+      };
+    });
     setMessage(`Check-in saved. Detected emotion: ${result.daily_log.detected_emotion}.`);
     return result;
   }
 
   async function handleTaskSubmit(payload) {
-    const result = await plannerApi.createTask({ ...payload, user_id: userId });
+    const result = await plannerApi.createTask({ ...payload, user_id: activeUserId });
     await refreshTasks();
     setMessage(payload.is_fixed_time ? 'Fixed task added.' : 'Flexible task added.');
     return result;
   }
 
+  async function handleSelectedDayTaskSave(dayKey, payload, existingTask) {
+    const normalized = normalizeSelectedDayTask(payload, dayKey);
+    const result = existingTask?.task_id
+      ? await plannerApi.updateTask(existingTask.task_id, { ...normalized, user_id: activeUserId })
+      : await plannerApi.createTask({ ...normalized, user_id: activeUserId });
+    await refreshTasks();
+    const savedTask = result.task;
+    setSelectedDayTasks((current) => ({
+      ...current,
+      [dayKey]: upsertById(current[dayKey] || [], savedTask, 'task_id')
+    }));
+    setMessage(existingTask?.task_id ? 'Task updated in database.' : 'Task saved to database.');
+    return savedTask;
+  }
+
+  async function handleSelectedDayTaskDelete(dayKey, task) {
+    if (task?.task_id) {
+      await plannerApi.removeTask(task.task_id);
+      await refreshTasks();
+    }
+    setSelectedDayTasks((current) => ({
+      ...current,
+      [dayKey]: (current[dayKey] || []).filter((item) => getPreviewTaskId(item) !== getPreviewTaskId(task))
+    }));
+    setMessage('Task removed from the selected day.');
+  }
+
   async function handleGenerateSchedule() {
-    const result = await plannerApi.generateSchedule({ user_id: userId });
+    const result = await plannerApi.generateSchedule({ user_id: activeUserId });
     setSchedule(result.schedule);
     setScheduleItems(result.items || []);
-    await refreshTasks();
+    await loadBootstrap();
     setMessage('Schedule generated.');
     return result;
   }
@@ -193,17 +235,13 @@ export function App() {
       log_date: day.key
     });
 
-    for (const task of addedTasks) {
-      await handleTaskSubmit(normalizeSelectedDayTask(task, day.key));
-    }
-
     const result = await plannerApi.generateSchedule({
-      user_id: userId,
-      daily_log_id: dailyLogResult.daily_log.log_id
+      user_id: activeUserId,
+      daily_log_id: dailyLogResult.daily_log.log_id,
+      schedule_date: day.key
     });
     setSchedule(result.schedule);
-    setScheduleItems(result.items || []);
-    await refreshTasks();
+    await loadBootstrap();
     setMessage('Daily schedule generated for the selected day.');
     setSelectedDayTasks((current) => ({ ...current, [day.key]: [] }));
     setCurrentPage('generated');
@@ -211,7 +249,7 @@ export function App() {
   }
 
   async function handleFeedbackSubmit(payload) {
-    const result = await plannerApi.submitFeedback({ ...payload, user_id: userId });
+    const result = await plannerApi.submitFeedback({ ...payload, user_id: activeUserId });
     if (result.updated_schedule) {
       setSchedule(result.updated_schedule);
       setScheduleItems(result.updated_items || []);
@@ -222,10 +260,26 @@ export function App() {
     await refreshTasks();
   }
 
-  function handleRegister(payload) {
+  async function handleRegister(payload) {
+    if (!localUser && payload.password) {
+      const result = await plannerApi.register({
+        ...payload,
+        full_name: `${payload.first_name || ''} ${payload.last_name || ''}`.trim()
+      });
+      const registeredUser = normalizeAuthUser(result.user);
+      localStorage.setItem(registrationKey, JSON.stringify(registeredUser));
+      setLocalUser(registeredUser);
+      setBootstrap((current) => ({ ...(current || {}), user: result.user, preferences: result.preferences }));
+      setPlannerSettings(preferencesToSettings(result.preferences, plannerSettings, result.user));
+      setProfileMode(null);
+      return;
+    }
+
     const registeredUser = {
+      user_id: localUser?.user_id || demoUserId,
       first_name: payload.first_name.trim(),
       last_name: payload.last_name.trim(),
+      full_name: `${payload.first_name.trim()} ${payload.last_name.trim()}`.trim(),
       email: payload.email.trim(),
       profile_image: payload.profile_image || localUser?.profile_image || ''
     };
@@ -234,9 +288,16 @@ export function App() {
     setProfileMode(null);
   }
 
-  function handleUseExistingAccount() {
-    localStorage.setItem(registrationKey, JSON.stringify(defaultLocalUser));
-    setLocalUser(defaultLocalUser);
+  async function handleUseExistingAccount(payload = {}) {
+    const result = await plannerApi.login({
+      email: payload.email || defaultLocalUser.email,
+      password: payload.password || 'demo123'
+    });
+    const nextUser = normalizeAuthUser(result.user);
+    localStorage.setItem(registrationKey, JSON.stringify(nextUser));
+    setLocalUser(nextUser);
+    setBootstrap((current) => ({ ...(current || {}), user: result.user, preferences: result.preferences }));
+    setPlannerSettings(preferencesToSettings(result.preferences, plannerSettings, result.user));
   }
 
   function handleLogout() {
@@ -323,6 +384,7 @@ export function App() {
             tasks={tasks}
             scheduleItems={scheduleItems}
             dailyLogs={bootstrap?.daily_logs || []}
+            dailyEvaluations={bootstrap?.daily_evaluations || []}
             isLoading={isLoading}
             onSelectDay={(day) => {
               setSelectedDay(day);
@@ -335,6 +397,7 @@ export function App() {
             tasks={tasks}
             scheduleItems={scheduleItems}
             dailyLogs={bootstrap?.daily_logs || []}
+            aiNotes={bootstrap?.ai_notes || []}
             latestLog={bootstrap?.latest_daily_log}
             isLoading={isLoading}
           />
@@ -350,11 +413,12 @@ export function App() {
           <SettingsPage
             user={profileUser}
             settings={plannerSettings}
-            onSave={(nextSettings, nextProfile) => {
+            onSave={async (nextSettings, nextProfile) => {
+              const result = await plannerApi.savePreferences(activeUserId, { settings: nextSettings });
               setPlannerSettings(nextSettings);
-              localStorage.setItem(settingsKey, JSON.stringify(nextSettings));
+              setBootstrap((current) => ({ ...(current || {}), preferences: result.preferences }));
               if (nextProfile) {
-                handleRegister(nextProfile);
+                await handleRegister(nextProfile);
               }
               setMessage('Changes saved successfully.');
             }}
@@ -364,6 +428,7 @@ export function App() {
             tasks={tasks}
             scheduleItems={scheduleItems}
             dailyLogs={bootstrap?.daily_logs || []}
+            dailyEvaluations={bootstrap?.daily_evaluations || []}
             latestLog={bootstrap?.latest_daily_log}
             isLoading={isLoading}
           />
@@ -372,6 +437,8 @@ export function App() {
             tasks={tasks}
             scheduleItems={scheduleItems}
             latestLog={bootstrap?.latest_daily_log}
+            dailyLogs={bootstrap?.daily_logs || []}
+            dailyEvaluations={bootstrap?.daily_evaluations || []}
             isLoading={isLoading}
             onSelectDay={(day) => {
               setSelectedDay(day);
@@ -389,19 +456,20 @@ export function App() {
             onBack={() => setCurrentPage('weekly')}
             onDailyLogSubmit={handleDailyLogSubmit}
             onGenerate={handleGenerateSelectedDay}
-            latestLog={bootstrap?.latest_daily_log}
-            addedTasks={selectedDayTasks[selectedDay?.key] || []}
-            onAddedTasksChange={(dayKey, nextTasks) => {
-              setSelectedDayTasks((current) => ({ ...current, [dayKey]: nextTasks }));
-            }}
+            latestLog={getDailyLogForDay(bootstrap?.daily_logs || [], selectedDay?.key) || bootstrap?.latest_daily_log}
+            addedTasks={getSelectedDayInputTasks(tasks, selectedDay?.key, selectedDayTasks)}
+            onSaveTask={handleSelectedDayTaskSave}
+            onDeleteTask={handleSelectedDayTaskDelete}
           />
         ) : currentPage === 'generated' ? (
           <DailyDetailsPage
+            userId={activeUserId}
             day={selectedDay}
             schedule={schedule}
             items={scheduleItems}
             tasks={tasks}
             latestLog={bootstrap?.latest_daily_log}
+            aiNotes={bootstrap?.ai_notes || []}
             onBack={() => setCurrentPage('day')}
             onWeekly={() => setCurrentPage(detailsBackPage)}
             overviewBackLabel={detailsBackPage === 'calendar' ? 'Back to calendar' : 'Back to weekly dashboard'}
@@ -413,6 +481,7 @@ export function App() {
                   : task
               )));
             }}
+            onDataRefresh={loadBootstrap}
           />
         ) : (
           <>
@@ -480,7 +549,7 @@ export function App() {
                 <TaskList tasks={tasks} />
                 <ScheduleView
                   schedule={schedule}
-                  items={scheduleItems}
+                  items={scheduleItems.filter((item) => !schedule?.schedule_id || item.schedule_id === schedule.schedule_id)}
                   renderFeedback={(item) => (
                     <FeedbackPanel item={item} onSubmit={handleFeedbackSubmit} />
                   )}
@@ -496,9 +565,9 @@ export function App() {
   );
 }
 
-function WeeklyDashboard({ tasks, scheduleItems, latestLog, isLoading, onSelectDay }) {
+function WeeklyDashboard({ tasks, scheduleItems, latestLog, dailyLogs = [], dailyEvaluations = [], isLoading, onSelectDay }) {
   const weekDays = getCurrentWeekDays();
-  const weeklyData = buildWeeklyDashboardData({ tasks, scheduleItems, latestLog, weekDays });
+  const weeklyData = buildWeeklyDashboardData({ tasks, scheduleItems, latestLog, dailyLogs, dailyEvaluations, weekDays });
 
   if (isLoading) {
     return <div className="empty-state">Loading weekly dashboard...</div>;
@@ -651,7 +720,7 @@ function WeeklyDashboard({ tasks, scheduleItems, latestLog, isLoading, onSelectD
   );
 }
 
-function CalendarPage({ tasks = [], scheduleItems = [], dailyLogs = [], isLoading, onSelectDay }) {
+function CalendarPage({ tasks = [], scheduleItems = [], dailyLogs = [], dailyEvaluations = [], isLoading, onSelectDay }) {
   const [visibleMonth, setVisibleMonth] = useState(() => new Date());
   const [filters, setFilters] = useState({
     tasks: true,
@@ -661,7 +730,7 @@ function CalendarPage({ tasks = [], scheduleItems = [], dailyLogs = [], isLoadin
     meetings: true,
     ai: true
   });
-  const calendarData = buildCalendarMonthData({ visibleMonth, tasks, scheduleItems, dailyLogs });
+  const calendarData = buildCalendarMonthData({ visibleMonth, tasks, scheduleItems, dailyLogs, dailyEvaluations });
 
   function moveMonth(direction) {
     setVisibleMonth((current) => new Date(current.getFullYear(), current.getMonth() + direction, 1));
@@ -792,9 +861,10 @@ function CalendarPage({ tasks = [], scheduleItems = [], dailyLogs = [], isLoadin
   );
 }
 
-function AiNotesPage({ tasks = [], scheduleItems = [], dailyLogs = [], latestLog, isLoading }) {
+function AiNotesPage({ tasks = [], scheduleItems = [], dailyLogs = [], aiNotes = [], latestLog, isLoading }) {
   const [period, setPeriod] = useState('weekly');
   const insights = buildAiNotesInsights({ tasks, scheduleItems, dailyLogs, latestLog, period });
+  const visibleNotes = filterAiNotesByPeriod(aiNotes, period);
 
   if (isLoading) {
     return <div className="empty-state">Loading AI notes...</div>;
@@ -879,6 +949,29 @@ function AiNotesPage({ tasks = [], scheduleItems = [], dailyLogs = [], latestLog
       </div>
 
       <div className="ai-recommendation-grid">
+        <section className="ai-recommendation-card">
+          <div className="section-title-row">
+            <div>
+              <p className="eyebrow">Saved Notes</p>
+              <h2>Database AI Notes</h2>
+            </div>
+            <Database size={30} />
+          </div>
+          <div className="recommendation-list">
+            {visibleNotes.length === 0 ? (
+              <article>
+                <Sparkles size={17} />
+                <span>No saved AI notes for this period yet.</span>
+              </article>
+            ) : visibleNotes.slice(0, 6).map((note) => (
+              <article key={note.note_id}>
+                <Sparkles size={17} />
+                <span>{note.title}: {note.message}</span>
+              </article>
+            ))}
+          </div>
+        </section>
+
         <section className="ai-recommendation-card">
           <div className="section-title-row">
             <div>
@@ -1434,9 +1527,9 @@ function SettingsPage({ user, settings, onSave }) {
   );
 }
 
-function ProgressPage({ tasks = [], scheduleItems = [], dailyLogs = [], latestLog, isLoading }) {
+function ProgressPage({ tasks = [], scheduleItems = [], dailyLogs = [], dailyEvaluations = [], latestLog, isLoading }) {
   const [period, setPeriod] = useState('weekly');
-  const progress = buildProgressDashboardData({ tasks, scheduleItems, dailyLogs, latestLog, period });
+  const progress = buildProgressDashboardData({ tasks, scheduleItems, dailyLogs, dailyEvaluations, latestLog, period });
 
   if (isLoading) {
     return <div className="empty-state">Loading progress dashboard...</div>;
@@ -1619,7 +1712,8 @@ function SelectedDayInputPage({
   onGenerate,
   latestLog,
   addedTasks,
-  onAddedTasksChange
+  onSaveTask,
+  onDeleteTask
 }) {
   const [checkInDraft, setCheckInDraft] = useState(getDefaultCheckInDraft());
   const [taskDraft, setTaskDraft] = useState(null);
@@ -1627,34 +1721,26 @@ function SelectedDayInputPage({
   const [isGenerating, setIsGenerating] = useState(false);
   const dayKey = day?.key || toDateKey(new Date());
   const dayTitle = formatSelectedDayHeading(day);
-  const editingTask = addedTasks.find((task) => task.local_id === editingTaskId) || null;
+  const editingTask = addedTasks.find((task) => getPreviewTaskId(task) === editingTaskId) || null;
   const validation = validateSelectedDayInput(checkInDraft, addedTasks);
   const canGenerate = validation.isValid && !isGenerating;
   const isReviewMode = isPastDayKey(dayKey);
 
   async function handleTaskPreviewSubmit(task) {
-    const preparedTask = {
-      ...task,
-      local_id: editingTaskId || task.local_id || createLocalTaskId(),
-      task_date: dayKey
-    };
-    const nextTasks = editingTaskId
-      ? addedTasks.map((item) => (item.local_id === editingTaskId ? preparedTask : item))
-      : [...addedTasks, preparedTask];
-
-    onAddedTasksChange(dayKey, nextTasks);
+    await onSaveTask(dayKey, task, editingTask);
     setEditingTaskId(null);
   }
 
   function handleEditTask(task) {
-    setEditingTaskId(task.local_id);
+    setEditingTaskId(getPreviewTaskId(task));
   }
 
-  function handleDeleteTask(taskId) {
+  async function handleDeleteTask(taskId) {
+    const task = addedTasks.find((item) => getPreviewTaskId(item) === taskId);
     const confirmed = window.confirm('Delete this task from Added Tasks?');
     if (!confirmed) return;
 
-    onAddedTasksChange(dayKey, addedTasks.filter((task) => task.local_id !== taskId));
+    await onDeleteTask(dayKey, task);
     if (editingTaskId === taskId) {
       setEditingTaskId(null);
     }
@@ -1755,15 +1841,18 @@ function SelectedDayInputPage({
 }
 
 function DailyDetailsPage({
+  userId,
   day,
   schedule,
   items = [],
   tasks = [],
   latestLog,
+  aiNotes = [],
   onBack,
   onWeekly,
   overviewBackLabel = 'Back to weekly dashboard',
-  onTaskStatusChange
+  onTaskStatusChange,
+  onDataRefresh
 }) {
   const dayKey = day?.key || datePart(schedule?.schedule_date) || toDateKey(new Date());
   const isReviewMode = isPastDayKey(dayKey);
@@ -1771,7 +1860,7 @@ function DailyDetailsPage({
   const [notice, setNotice] = useState('');
   const [editingItemId, setEditingItemId] = useState(null);
   const [editDraft, setEditDraft] = useState(null);
-  const [activeTaskUi, setActiveTaskUi] = useState({});
+  const [activeTaskUi, setActiveTaskUi] = useState(() => buildActiveTaskUiFromItems(initializeDailyDetailItems({ day, schedule, items, tasks })));
   const [selectedCompletedItemId, setSelectedCompletedItemId] = useState(null);
   const [restoreMenuItemId, setRestoreMenuItemId] = useState(null);
   const [waitingTaskToRemove, setWaitingTaskToRemove] = useState(null);
@@ -1785,13 +1874,15 @@ function DailyDetailsPage({
     ? details.completedTasks.find((item) => getDetailItemId(item) === selectedCompletedItemId)
     : null;
   const dailyEvaluation = buildDailyEvaluation(details, activeTaskUi, latestLog);
+  const adviceNotes = buildDailyAdviceNotes(details.advice, aiNotes, dayKey);
 
   useEffect(() => {
-    setDetailItems(initializeDailyDetailItems({ day, schedule, items, tasks }));
+    const nextItems = initializeDailyDetailItems({ day, schedule, items, tasks });
+    setDetailItems(nextItems);
     setNotice('');
     setEditingItemId(null);
     setEditDraft(null);
-    setActiveTaskUi({});
+    setActiveTaskUi(buildActiveTaskUiFromItems(nextItems));
     setSelectedCompletedItemId(null);
     setRestoreMenuItemId(null);
     setWaitingTaskToRemove(null);
@@ -1813,7 +1904,7 @@ function DailyDetailsPage({
     return () => window.clearInterval(timer);
   }, [dayKey]);
 
-  function startTask(item) {
+  async function startTask(item) {
     if (isReviewMode) {
       setNotice('Review Mode is read-only. This task cannot be started from a past day.');
       return;
@@ -1824,27 +1915,66 @@ function DailyDetailsPage({
       return;
     }
 
+    if (!item.schedule_item_id) {
+      setNotice('This deadline task is visible for planning, but it needs a generated schedule block before it can be started.');
+      return;
+    }
+
     const activeTask = detailItems.find((detailItem) => detailItem.status === 'in_progress');
     if (activeTask && getDetailItemId(activeTask) !== getDetailItemId(item)) {
       setNotice('Finish or return the current task before starting another one.');
       return;
     }
 
-    setDetailItems((currentItems) => currentItems.map((detailItem) => (
-      getDetailItemId(detailItem) === getDetailItemId(item)
-        ? { ...detailItem, status: 'in_progress', started_at: detailItem.started_at || new Date().toISOString() }
-        : detailItem
-    )));
-    setNotice('Task moved to In Progress.');
+    try {
+      const result = await plannerApi.updateScheduleItemStatus(item.schedule_item_id, {
+        status: 'in_progress',
+        started_at: new Date().toISOString()
+      });
+      applyScheduleItemResult(result);
+      await onDataRefresh?.();
+      setNotice('Task moved to In Progress.');
+    } catch (error) {
+      setNotice(error.message);
+    }
   }
 
-  function finishTask(item) {
+  async function finishTask(item) {
     if (isReviewMode) {
       setNotice('Review Mode is read-only. This task cannot be finished from a past day.');
       return;
     }
 
     const completedAt = new Date();
+    if (item.schedule_item_id) {
+      try {
+        const result = await plannerApi.updateScheduleItemStatus(item.schedule_item_id, {
+          status: 'completed',
+          completed_at: completedAt.toISOString(),
+          actual_duration_minutes: calculateActualDurationMinutes(item, completedAt)
+        });
+        applyScheduleItemResult(result);
+        await onDataRefresh?.();
+      } catch (error) {
+        setNotice(error.message);
+        return;
+      }
+    } else if (item.task_id) {
+      try {
+        await plannerApi.updateTask(item.task_id, {
+          status: 'completed',
+          is_completed: true,
+          completed_on: dayKey,
+          completed_at: completedAt.toISOString(),
+          remaining_duration_minutes: 0
+        });
+        await onDataRefresh?.();
+      } catch (error) {
+        setNotice(error.message);
+        return;
+      }
+    }
+
     setDetailItems((currentItems) => currentItems.map((detailItem) => (
       getDetailItemId(detailItem) === getDetailItemId(item)
         ? {
@@ -1865,10 +1995,21 @@ function DailyDetailsPage({
     setNotice('Task moved to Completed Tasks.');
   }
 
-  function returnToWaiting(item) {
+  async function returnToWaiting(item) {
     if (isReviewMode) {
       setNotice('Review Mode is read-only. This task cannot be returned from a past day.');
       return;
+    }
+
+    if (item.schedule_item_id) {
+      try {
+        const result = await plannerApi.updateScheduleItemStatus(item.schedule_item_id, { status: 'waiting' });
+        applyScheduleItemResult(result);
+        await onDataRefresh?.();
+      } catch (error) {
+        setNotice(error.message);
+        return;
+      }
     }
 
     setDetailItems((currentItems) => currentItems.map((detailItem) => (
@@ -1896,8 +2037,12 @@ function DailyDetailsPage({
     });
   }
 
-  function toggleSubtask(item, subtaskId) {
+  async function toggleSubtask(item, subtaskId) {
     if (isReviewMode) return;
+
+    const currentState = activeTaskUi[getDetailItemId(item)] || buildActiveTaskUiState(item);
+    const subtask = currentState.subtasks.find((entry) => entry.id === subtaskId || entry.subtask_id === subtaskId);
+    const nextCompleted = !subtask?.completed;
 
     updateActiveTaskUi(item, (currentState) => ({
       ...currentState,
@@ -1905,9 +2050,17 @@ function DailyDetailsPage({
         subtask.id === subtaskId ? { ...subtask, completed: !subtask.completed } : subtask
       ))
     }));
+
+    if (subtask?.subtask_id) {
+      try {
+        await plannerApi.updateSubtask(subtask.subtask_id, { is_completed: nextCompleted });
+      } catch (error) {
+        setNotice(error.message);
+      }
+    }
   }
 
-  function addTaskResource(item, type, value) {
+  async function addTaskResource(item, type, value) {
     if (isReviewMode) {
       setNotice('Review Mode is read-only. Resources cannot be changed for a past day.');
       return;
@@ -1925,20 +2078,26 @@ function DailyDetailsPage({
       return;
     }
 
-    updateActiveTaskUi(item, (state) => ({
-      ...state,
-      [draftKey]: '',
-      resources: [
-        ...state.resources,
-        {
-          id: createLocalTaskId(),
-          type,
-          label: shortenUrl(rawValue),
-          value: rawValue,
-          preview: type === 'image' ? rawValue : ''
-        }
-      ]
-    }));
+    try {
+      const result = await plannerApi.addResource({
+        user_id: userId,
+        task_id: item.task_id,
+        schedule_item_id: item.schedule_item_id,
+        resource_type: type,
+        label: shortenUrl(rawValue),
+        value: rawValue,
+        preview_url: type === 'image' ? rawValue : ''
+      });
+      updateActiveTaskUi(item, (state) => ({
+        ...state,
+        [draftKey]: '',
+        resources: [...state.resources, normalizeResourceForUi(result.resource)]
+      }));
+      await onDataRefresh?.();
+      setNotice(type === 'image' ? 'Image resource saved.' : 'Link resource saved.');
+    } catch (error) {
+      setNotice(error.message);
+    }
   }
 
   function addImageResourceFromFile(item, file) {
@@ -1955,36 +2114,52 @@ function DailyDetailsPage({
     }
 
     const reader = new FileReader();
-    reader.onload = () => {
-      updateActiveTaskUi(item, (state) => ({
-        ...state,
-        resources: [
-          ...state.resources,
-          {
-            id: createLocalTaskId(),
-            type: 'image',
-            label: file.name,
-            value: file.name,
-            preview: reader.result
-          }
-        ]
-      }));
-      setNotice('Image resource added.');
+    reader.onload = async () => {
+      try {
+        const result = await plannerApi.addResource({
+          user_id: userId,
+          task_id: item.task_id,
+          schedule_item_id: item.schedule_item_id,
+          resource_type: 'image',
+          label: file.name,
+          value: file.name,
+          preview_url: reader.result
+        });
+        updateActiveTaskUi(item, (state) => ({
+          ...state,
+          resources: [...state.resources, normalizeResourceForUi(result.resource)]
+        }));
+        await onDataRefresh?.();
+        setNotice('Image resource saved.');
+      } catch (error) {
+        setNotice(error.message);
+      }
     };
     reader.onerror = () => setNotice('Could not read this image. Please try another file.');
     reader.readAsDataURL(file);
   }
 
-  function removeTaskResource(item, resourceId) {
+  async function removeTaskResource(item, resourceId) {
     if (isReviewMode) {
       setNotice('Review Mode is read-only. Resources cannot be changed for a past day.');
       return;
     }
 
-    updateActiveTaskUi(item, (state) => ({
-      ...state,
-      resources: state.resources.filter((resource) => resource.id !== resourceId)
-    }));
+    const state = activeTaskUi[getDetailItemId(item)] || buildActiveTaskUiState(item);
+    const resource = state.resources.find((entry) => entry.id === resourceId || entry.resource_id === resourceId);
+    try {
+      if (resource?.resource_id) {
+        await plannerApi.deleteResource(resource.resource_id);
+      }
+      updateActiveTaskUi(item, (state) => ({
+        ...state,
+        resources: state.resources.filter((resource) => resource.id !== resourceId && resource.resource_id !== resourceId)
+      }));
+      await onDataRefresh?.();
+      setNotice('Resource removed.');
+    } catch (error) {
+      setNotice(error.message);
+    }
   }
 
   function openFeedbackPopup(item) {
@@ -2010,7 +2185,7 @@ function DailyDetailsPage({
     }));
   }
 
-  function submitProgressFeedback(item) {
+  async function submitProgressFeedback(item) {
     if (isReviewMode) {
       setNotice('Review Mode is read-only. New feedback cannot be submitted for a past day.');
       return;
@@ -2018,22 +2193,37 @@ function DailyDetailsPage({
 
     const currentState = activeTaskUi[getDetailItemId(item)] || buildActiveTaskUiState(item);
     const outcome = currentState.feedbackDraft.outcome;
+    const feedbackPayload = {
+      ...currentState.feedbackDraft,
+      user_id: userId,
+      task_id: item.task_id,
+      schedule_item_id: item.schedule_item_id,
+      outcome,
+      completed: outcome === 'completed'
+    };
 
-    updateActiveTaskUi(item, (state) => ({
-      ...state,
-      feedbackOpen: false,
-      lastFeedback: currentState.feedbackDraft,
-      feedbackDraft: getDefaultProgressFeedbackDraft()
-    }));
+    try {
+      const result = await plannerApi.submitFeedback(feedbackPayload);
+      updateActiveTaskUi(item, (state) => ({
+        ...state,
+        feedbackOpen: false,
+        lastFeedback: { ...currentState.feedbackDraft, ...result.feedback },
+        feedbackDraft: getDefaultProgressFeedbackDraft()
+      }));
+      await onDataRefresh?.();
+    } catch (error) {
+      setNotice(error.message);
+      return;
+    }
 
     if (outcome === 'completed') {
-      finishTask(item);
+      await finishTask(item);
       setNotice('Feedback saved. Task moved to Completed Tasks.');
       return;
     }
 
     if (outcome === 'waiting') {
-      returnToWaiting(item);
+      await returnToWaiting(item);
       setNotice('Feedback saved. Task returned to Waiting Tasks.');
       return;
     }
@@ -2056,7 +2246,7 @@ function DailyDetailsPage({
     setEditDraft(null);
   }
 
-  function saveEdit(item) {
+  async function saveEdit(item) {
     if (isReviewMode) {
       setNotice('Review Mode is read-only. Past-day tasks cannot be edited.');
       return;
@@ -2072,13 +2262,26 @@ function DailyDetailsPage({
       return;
     }
 
-    setDetailItems((currentItems) => currentItems.map((detailItem) => (
-      getDetailItemId(detailItem) === getDetailItemId(item)
-        ? applyDailyTaskEdit(detailItem, editDraft, dayKey)
-        : detailItem
-    )));
-    setNotice('Waiting task updated.');
-    cancelEdit();
+    try {
+      await plannerApi.updateTask(item.task_id, {
+        title: editDraft.title.trim(),
+        priority_level: editDraft.priority_level,
+        difficulty_level: editDraft.difficulty_level,
+        schedule_item_id: item.schedule_item_id,
+        start_time: replaceTimePart(item.start_time, editDraft.start_time, dayKey),
+        end_time: replaceTimePart(item.end_time, editDraft.end_time, dayKey)
+      });
+      setDetailItems((currentItems) => currentItems.map((detailItem) => (
+        getDetailItemId(detailItem) === getDetailItemId(item)
+          ? applyDailyTaskEdit(detailItem, editDraft, dayKey)
+          : detailItem
+      )));
+      await onDataRefresh?.();
+      setNotice('Waiting task updated.');
+      cancelEdit();
+    } catch (error) {
+      setNotice(error.message);
+    }
   }
 
   function toggleRestoreMenu(item) {
@@ -2088,7 +2291,7 @@ function DailyDetailsPage({
     setRestoreMenuItemId((currentId) => (currentId === itemId ? null : itemId));
   }
 
-  function restoreCompletedTask(item, targetStatus) {
+  async function restoreCompletedTask(item, targetStatus) {
     if (isReviewMode) {
       setNotice('Review Mode is read-only. Completed tasks cannot be restored from a past day.');
       setRestoreMenuItemId(null);
@@ -2102,6 +2305,21 @@ function DailyDetailsPage({
       const activeTask = detailItems.find((detailItem) => detailItem.status === 'in_progress');
       if (activeTask && getDetailItemId(activeTask) !== itemId) {
         setNotice('Finish or return the current task before restoring another task to In Progress.');
+        setRestoreMenuItemId(null);
+        return;
+      }
+    }
+
+    if (item.schedule_item_id) {
+      try {
+        const result = await plannerApi.updateScheduleItemStatus(item.schedule_item_id, {
+          status: targetStatus === 'waiting' ? 'waiting' : targetStatus,
+          restored_at: restoreTime
+        });
+        applyScheduleItemResult(result);
+        await onDataRefresh?.();
+      } catch (error) {
+        setNotice(error.message);
         setRestoreMenuItemId(null);
         return;
       }
@@ -2147,9 +2365,21 @@ function DailyDetailsPage({
     setWaitingTaskToRemove(null);
   }
 
-  function confirmRemoveWaitingTask() {
+  async function confirmRemoveWaitingTask() {
     if (!waitingTaskToRemove) return;
     const itemId = getDetailItemId(waitingTaskToRemove);
+
+    try {
+      if (waitingTaskToRemove.schedule_item_id) {
+        await plannerApi.updateScheduleItemStatus(waitingTaskToRemove.schedule_item_id, { status: 'removed' });
+      } else if (waitingTaskToRemove.task_id) {
+        await plannerApi.removeTask(waitingTaskToRemove.task_id);
+      }
+      await onDataRefresh?.();
+    } catch (error) {
+      setNotice(error.message);
+      return;
+    }
 
     setDetailItems((currentItems) => currentItems.filter((detailItem) => getDetailItemId(detailItem) !== itemId));
     setActiveTaskUi((current) => {
@@ -2164,6 +2394,21 @@ function DailyDetailsPage({
       removed_at: new Date().toISOString()
     });
     setNotice('Waiting task removed.');
+  }
+
+  function applyScheduleItemResult(result) {
+    if (!result?.items) return;
+    const nextItems = initializeDailyDetailItems({
+      day,
+      schedule,
+      items: result.items,
+      tasks
+    });
+    setDetailItems(nextItems);
+    setActiveTaskUi((current) => ({
+      ...buildActiveTaskUiFromItems(nextItems),
+      ...current
+    }));
   }
 
   return (
@@ -2287,11 +2532,11 @@ function DailyDetailsPage({
 
         <section className="daily-details-card advice-card">
           <DailyDetailsCardHeader icon={Sparkles} eyebrow="Smart Notes" title="AI Notes & Advice" />
-          {details.advice.length === 0 ? (
+          {adviceNotes.length === 0 ? (
             <p className="no-results">No advice yet</p>
           ) : (
             <div className="advice-list">
-              {details.advice.map((note) => (
+              {adviceNotes.map((note) => (
                 <article key={note}>{note}</article>
               ))}
             </div>
@@ -2351,7 +2596,7 @@ function AddedTasksPreview({ tasks, onEdit, onDelete }) {
       ) : (
         <div className="added-task-list">
           {tasks.map((task) => (
-            <article className="added-task-card" key={task.local_id}>
+            <article className="added-task-card" key={getPreviewTaskId(task)}>
               <div>
                 <strong>{task.title}</strong>
                 <span>{task.is_fixed_time ? 'Fixed-time task' : 'Flexible task'}</span>
@@ -2367,7 +2612,7 @@ function AddedTasksPreview({ tasks, onEdit, onDelete }) {
                   <Pencil size={15} />
                   Edit
                 </button>
-                <button className="delete" type="button" onClick={() => onDelete(task.local_id)}>
+                <button className="delete" type="button" onClick={() => onDelete(getPreviewTaskId(task))}>
                   <Trash2 size={15} />
                   Delete
                 </button>
@@ -3029,11 +3274,38 @@ function DailyTaskEditForm({ draft, onChange, onSave, onCancel }) {
 }
 
 function RegistrationScreen({ onRegister, onExistingAccount }) {
-  const [form, setForm] = useState(defaultLocalUser);
+  const [mode, setMode] = useState('login');
+  const [form, setForm] = useState({
+    ...defaultLocalUser,
+    password: mode === 'login' ? 'demo123' : ''
+  });
+  const [authMessage, setAuthMessage] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  function submit(event) {
+  async function submit(event) {
     event.preventDefault();
-    onRegister(form);
+    setAuthMessage('');
+    setIsSubmitting(true);
+    try {
+      if (mode === 'login') {
+        await onExistingAccount(form);
+      } else {
+        await onRegister(form);
+      }
+    } catch (error) {
+      setAuthMessage(error.message);
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  function switchMode(nextMode) {
+    setMode(nextMode);
+    setAuthMessage('');
+    setForm((current) => ({
+      ...current,
+      password: nextMode === 'login' ? current.password || 'demo123' : ''
+    }));
   }
 
   return (
@@ -3050,29 +3322,41 @@ function RegistrationScreen({ onRegister, onExistingAccount }) {
         </div>
         <div className="auth-content">
           <p className="eyebrow">Welcome</p>
-          <h1>Create your Smart Planner account</h1>
+          <h1>{mode === 'login' ? 'Log in to Smart Planner' : 'Create your Smart Planner account'}</h1>
           <p>
-            Register first to open the main planner interface. Existing users can continue directly to their workspace.
+            Your planner data is loaded from MySQL by user account, including preferences, tasks, schedules, and feedback.
           </p>
+          <div className="period-switch auth-switch" aria-label="Authentication mode">
+            <button className={mode === 'login' ? 'active' : ''} type="button" onClick={() => switchMode('login')}>
+              Login
+            </button>
+            <button className={mode === 'register' ? 'active' : ''} type="button" onClick={() => switchMode('register')}>
+              Register
+            </button>
+          </div>
           <form className="form-stack" onSubmit={submit}>
-            <div className="field-grid two">
-              <label>
-                First name
-                <input
-                  value={form.first_name}
-                  onChange={(event) => setForm({ ...form, first_name: event.target.value })}
-                  required
-                />
-              </label>
-              <label>
-                Last name
-                <input
-                  value={form.last_name}
-                  onChange={(event) => setForm({ ...form, last_name: event.target.value })}
-                  required
-                />
-              </label>
-            </div>
+            {authMessage ? <p className="form-validation">{authMessage}</p> : null}
+
+            {mode === 'register' ? (
+              <div className="field-grid two">
+                <label>
+                  First name
+                  <input
+                    value={form.first_name}
+                    onChange={(event) => setForm({ ...form, first_name: event.target.value })}
+                    required
+                  />
+                </label>
+                <label>
+                  Last name
+                  <input
+                    value={form.last_name}
+                    onChange={(event) => setForm({ ...form, last_name: event.target.value })}
+                    required
+                  />
+                </label>
+              </div>
+            ) : null}
             <label>
               Email
               <input
@@ -3082,13 +3366,24 @@ function RegistrationScreen({ onRegister, onExistingAccount }) {
                 required
               />
             </label>
-            <ProfileImageField
-              value={form.profile_image}
-              onChange={(profileImage) => setForm({ ...form, profile_image: profileImage })}
-            />
-            <button className="primary-action" type="submit">Register and open planner</button>
-            <button className="text-action" type="button" onClick={onExistingAccount}>
-              I already have an account
+            <label>
+              Password
+              <input
+                type="password"
+                value={form.password}
+                onChange={(event) => setForm({ ...form, password: event.target.value })}
+                minLength={6}
+                required
+              />
+            </label>
+            {mode === 'register' ? (
+              <ProfileImageField
+                value={form.profile_image}
+                onChange={(profileImage) => setForm({ ...form, profile_image: profileImage })}
+              />
+            ) : null}
+            <button className="primary-action" type="submit" disabled={isSubmitting}>
+              {isSubmitting ? 'Please wait...' : mode === 'login' ? 'Login and open planner' : 'Register and open planner'}
             </button>
           </form>
         </div>
@@ -3216,6 +3511,42 @@ function mergeSettings(base, updates) {
   );
 }
 
+function preferencesToSettings(preferences, currentSettings = defaultSettings, user) {
+  if (!preferences) return mergeSettingsWithUser(currentSettings, user);
+  const savedSettings = typeof preferences.settings_json === 'string'
+    ? safeParseJson(preferences.settings_json)
+    : preferences.settings_json;
+  const merged = mergeSettings(defaultSettings, mergeSettings(currentSettings, savedSettings || {}));
+  return mergeSettingsWithUser({
+    ...merged,
+    schedule: {
+      ...merged.schedule,
+      wake_up_time: formatTimeInput(preferences.wake_up_time) || merged.schedule.wake_up_time,
+      sleep_time: formatTimeInput(preferences.sleep_time) || merged.schedule.sleep_time,
+      work_start: formatTimeInput(preferences.preferred_start_time) || merged.schedule.work_start,
+      work_end: formatTimeInput(preferences.preferred_end_time) || merged.schedule.work_end,
+      break_duration: preferences.break_duration_minutes || merged.schedule.break_duration,
+      focus_length: preferences.focus_session_minutes || merged.schedule.focus_length
+    },
+    notifications: {
+      ...merged.notifications,
+      task_reminders: Boolean(preferences.notifications_enabled)
+    },
+    ai: {
+      ...merged.ai,
+      recommendations: Boolean(preferences.ai_recommendations_enabled)
+    },
+    appearance: {
+      ...merged.appearance,
+      theme: preferences.theme || merged.appearance.theme
+    },
+    system: {
+      ...merged.system,
+      language: preferences.language || merged.system.language
+    }
+  }, user);
+}
+
 function mergeSettingsWithUser(settings, user) {
   const merged = mergeSettings(defaultSettings, settings);
   return {
@@ -3233,26 +3564,54 @@ function buildProfileFromSettings(profile, user) {
   const displayName = profile.display_name?.trim() || user?.full_name || defaultLocalUser.first_name + ' ' + defaultLocalUser.last_name;
   const [firstName, ...lastNameParts] = displayName.split(/\s+/);
   return {
+    user_id: user?.user_id || defaultLocalUser.user_id,
     first_name: firstName || defaultLocalUser.first_name,
     last_name: lastNameParts.join(' ') || user?.last_name || defaultLocalUser.last_name,
+    full_name: displayName,
     email: profile.email || user?.email || defaultLocalUser.email,
     profile_image: profile.profile_image || user?.profile_image || ''
   };
 }
 
+function normalizeAuthUser(user) {
+  const fullName = user?.full_name || defaultLocalUser.full_name;
+  const [firstName, ...lastNameParts] = fullName.split(/\s+/);
+  return {
+    user_id: user?.user_id || defaultLocalUser.user_id,
+    first_name: firstName || defaultLocalUser.first_name,
+    last_name: lastNameParts.join(' ') || defaultLocalUser.last_name,
+    full_name: fullName,
+    email: user?.email || defaultLocalUser.email,
+    profile_image: user?.profile_image || ''
+  };
+}
+
 function buildProfileUser(localUser, serverUser) {
   const fullName = localUser
-    ? `${localUser.first_name} ${localUser.last_name}`
+    ? localUser.full_name || `${localUser.first_name} ${localUser.last_name}`
     : serverUser?.full_name || defaultLocalUser.first_name + ' ' + defaultLocalUser.last_name;
 
   return {
     ...serverUser,
+    user_id: localUser?.user_id || serverUser?.user_id || defaultLocalUser.user_id,
     first_name: localUser?.first_name || fullName.split(' ')[0],
     last_name: localUser?.last_name || fullName.split(' ').slice(1).join(' '),
     full_name: fullName,
     email: localUser?.email || serverUser?.email || defaultLocalUser.email,
     profile_image: localUser?.profile_image || ''
   };
+}
+
+function safeParseJson(value) {
+  try {
+    return JSON.parse(value);
+  } catch {
+    return {};
+  }
+}
+
+function formatTimeInput(value) {
+  return value ? String(value).slice(0, 5) : '';
 }
 
 function buildNotifications({
@@ -3516,7 +3875,7 @@ function getCurrentWeekDays(date = new Date()) {
   });
 }
 
-function buildWeeklyDashboardData({ tasks = [], scheduleItems = [], latestLog, weekDays }) {
+function buildWeeklyDashboardData({ tasks = [], scheduleItems = [], latestLog, dailyLogs = [], dailyEvaluations = [], weekDays }) {
   const todayKey = toDateKey(new Date());
   const weekKeys = new Set(weekDays.map((day) => day.key));
   const tasksByDay = new Map(weekDays.map((day) => [day.key, []]));
@@ -3539,16 +3898,28 @@ function buildWeeklyDashboardData({ tasks = [], scheduleItems = [], latestLog, w
   });
 
   const stressByDay = new Map();
+  dailyLogs.forEach((log) => {
+    const key = datePart(log.log_date || log.checkin_date);
+    if (weekKeys.has(key)) {
+      stressByDay.set(key, Number.parseInt(log.stress_level, 10) || 0);
+    }
+  });
   if (latestLog?.log_date && weekKeys.has(datePart(latestLog.log_date))) {
     stressByDay.set(datePart(latestLog.log_date), Number.parseInt(latestLog.stress_level, 10) || 0);
   }
+  const evaluationByDay = new Map(dailyEvaluations.map((evaluation) => [
+    datePart(evaluation.evaluation_date),
+    evaluation
+  ]));
 
   const isNewUser = tasks.length === 0 && scheduleItems.length === 0 && !latestLog;
   const days = weekDays.map((day) => {
     const dayTasks = tasksByDay.get(day.key) || [];
     const totalTasks = dayTasks.length;
     const completedTasks = dayTasks.filter(isTaskCompleted).length;
-    const rawProgress = totalTasks ? Math.round((completedTasks / totalTasks) * 100) : 0;
+    const rawProgress = evaluationByDay.has(day.key)
+      ? Number.parseInt(evaluationByDay.get(day.key).completion_percentage, 10) || 0
+      : totalTasks ? Math.round((completedTasks / totalTasks) * 100) : 0;
     const isFuture = day.key > todayKey;
     const progressTone = getProgressTone(rawProgress, totalTasks, isFuture, isNewUser);
 
@@ -3573,7 +3944,13 @@ function buildWeeklyDashboardData({ tasks = [], scheduleItems = [], latestLog, w
   });
   const completed = weeklyTasks.filter(({ task }) => isTaskCompleted(task)).length;
   const unfinished = weeklyTasks.length - completed;
-  const score = weeklyTasks.length ? Math.round((completed / weeklyTasks.length) * 100) : null;
+  const weekEvaluations = [...evaluationByDay.entries()]
+    .filter(([key]) => weekKeys.has(key))
+    .map(([, evaluation]) => Number.parseInt(evaluation.productivity_score, 10))
+    .filter((value) => !Number.isNaN(value));
+  const score = weekEvaluations.length
+    ? Math.round(weekEvaluations.reduce((sum, value) => sum + value, 0) / weekEvaluations.length)
+    : weeklyTasks.length ? Math.round((completed / weeklyTasks.length) * 100) : null;
   const bestDay = days
     .filter((day) => day.totalTasks > 0)
     .sort((a, b) => b.progress - a.progress)[0];
@@ -3603,12 +3980,13 @@ function buildWeeklyDashboardData({ tasks = [], scheduleItems = [], latestLog, w
   };
 }
 
-function buildCalendarMonthData({ visibleMonth, tasks = [], scheduleItems = [], dailyLogs = [] }) {
+function buildCalendarMonthData({ visibleMonth, tasks = [], scheduleItems = [], dailyLogs = [], dailyEvaluations = [] }) {
   const monthDate = new Date(visibleMonth.getFullYear(), visibleMonth.getMonth(), 1);
   const monthKey = toMonthKey(monthDate);
   const todayKey = toDateKey(new Date());
   const calendarDays = getMonthCalendarDays(monthDate);
   const dailyLogByDay = new Map(dailyLogs.map((log) => [datePart(log.log_date), log]));
+  const evaluationByDay = new Map(dailyEvaluations.map((evaluation) => [datePart(evaluation.evaluation_date), evaluation]));
   const scheduleItemsByDay = new Map();
   const scheduledDatesByTask = new Map();
 
@@ -3632,9 +4010,12 @@ function buildCalendarMonthData({ visibleMonth, tasks = [], scheduleItems = [], 
     const dayTasks = tasks.filter((task) => isCalendarTaskVisibleOnDay(task, day.key, scheduledDatesByTask));
     const dayScheduleItems = scheduleItemsByDay.get(day.key) || [];
     const dailyLog = dailyLogByDay.get(day.key);
+    const evaluation = evaluationByDay.get(day.key);
     const totalTasks = dayTasks.length || dayScheduleItems.length;
     const completedTasks = dayTasks.filter(isTaskCompleted).length;
-    const progress = totalTasks ? Math.round((completedTasks / totalTasks) * 100) : 0;
+    const progress = evaluation
+      ? Number.parseInt(evaluation.completion_percentage || evaluation.productivity_score, 10) || 0
+      : totalTasks ? Math.round((completedTasks / totalTasks) * 100) : 0;
     const deadlineTasks = dayTasks.filter((task) => task.deadline && !isTaskCompleted(task));
     const deadlineTone = getStrongestDeadlineTone(deadlineTasks.map((task) => getDeadlineState(task, day.key).tone));
     const hasData = totalTasks > 0 || dayScheduleItems.length > 0 || Boolean(dailyLog);
@@ -3789,6 +4170,14 @@ function getInsightsPeriodStart(period) {
   return weekStart;
 }
 
+function filterAiNotesByPeriod(aiNotes = [], period) {
+  const periodStart = getInsightsPeriodStart(period);
+  return aiNotes.filter((note) => {
+    const key = datePart(note.note_date || note.created_at);
+    return !key || new Date(`${key}T00:00:00`) >= periodStart;
+  });
+}
+
 function averageNumber(values) {
   const numbers = values
     .map((value) => Number.parseFloat(value))
@@ -3835,7 +4224,7 @@ function buildLogMetricValues(logs, field) {
   return source.map((log) => Number.parseInt(log[field] || log.predicted_energy_level, 10) || 3);
 }
 
-function buildProgressDashboardData({ tasks = [], scheduleItems = [], dailyLogs = [], latestLog, period }) {
+function buildProgressDashboardData({ tasks = [], scheduleItems = [], dailyLogs = [], dailyEvaluations = [], latestLog, period }) {
   const periodStart = getInsightsPeriodStart(period);
   const todayKey = toDateKey(new Date());
   const filteredTasks = tasks.filter((task) => {
@@ -3850,7 +4239,9 @@ function buildProgressDashboardData({ tasks = [], scheduleItems = [], dailyLogs 
   const unfinishedTasks = filteredTasks.filter((task) => !isTaskCompleted(task) && !isTaskArchived(task));
   const overdueTasks = unfinishedTasks.filter((task) => getDeadlineState(task, todayKey).tone === 'overdue');
   const completionPercentage = filteredTasks.length ? Math.round((completedTasks.length / filteredTasks.length) * 100) : 0;
-  const productivityByDay = buildProductivityByDay(tasks);
+  const productivityByDay = dailyEvaluations.length > 0
+    ? buildProductivityByDayFromEvaluations(dailyEvaluations)
+    : buildProductivityByDay(tasks);
   const todayScore = productivityByDay.get(todayKey) || completionPercentage;
   const weeklyAverage = averageProgressForRange(productivityByDay, getInsightsPeriodStart('weekly'));
   const monthlyAverage = averageProgressForRange(productivityByDay, getInsightsPeriodStart('monthly'));
@@ -3871,7 +4262,7 @@ function buildProgressDashboardData({ tasks = [], scheduleItems = [], dailyLogs 
   const averageEnergy = averageNumber(filteredLogs.map((log) => log.predicted_energy_level || log.energy_level || latestLog?.energy_level));
   const averageStress = averageNumber(filteredLogs.map((log) => log.stress_level || latestLog?.stress_level));
   const productiveHour = getMostProductiveHour(scheduleItems.filter((item) => new Date(item.start_time) >= periodStart), completedTasks);
-  const hasEnoughData = filteredTasks.length >= 2 || filteredLogs.length >= 2 || scheduleItems.length >= 2;
+  const hasEnoughData = filteredTasks.length >= 2 || filteredLogs.length >= 2 || scheduleItems.length >= 2 || dailyEvaluations.length >= 1;
 
   return {
     hasEnoughData,
@@ -3926,6 +4317,13 @@ function buildProductivityByDay(tasks) {
   return new Map([...byDay.entries()].map(([key, value]) => [
     key,
     value.total ? Math.round((value.completed / value.total) * 100) : 0
+  ]));
+}
+
+function buildProductivityByDayFromEvaluations(evaluations = []) {
+  return new Map(evaluations.map((evaluation) => [
+    datePart(evaluation.evaluation_date),
+    Number.parseInt(evaluation.productivity_score || evaluation.completion_percentage, 10) || 0
   ]));
 }
 
@@ -4146,6 +4544,37 @@ function normalizeSelectedDayTask(taskDraft, selectedDate) {
   return payload;
 }
 
+function upsertById(items, item, key) {
+  const value = item?.[key];
+  if (!value) return [...items, item];
+  const exists = items.some((current) => current?.[key] === value);
+  return exists
+    ? items.map((current) => (current?.[key] === value ? item : current))
+    : [...items, item];
+}
+
+function getPreviewTaskId(task) {
+  return task?.task_id || task?.local_id || '';
+}
+
+function getDailyLogForDay(logs = [], dayKey) {
+  if (!dayKey) return null;
+  return logs.find((log) => datePart(log.log_date || log.checkin_date) === dayKey) || null;
+}
+
+function getSelectedDayInputTasks(tasks = [], dayKey, selectedDayTasks = {}) {
+  if (!dayKey) return [];
+  const currentDrafts = selectedDayTasks[dayKey] || [];
+  const currentIds = new Set(currentDrafts.map((task) => task.task_id).filter(Boolean));
+  const savedTasks = tasks.filter((task) => (
+    !currentIds.has(task.task_id) &&
+    !isTaskArchived(task) &&
+    !isTaskCompleted(task) &&
+    (datePart(task.task_date) === dayKey || datePart(task.fixed_date) === dayKey)
+  ));
+  return [...currentDrafts, ...savedTasks];
+}
+
 function buildDailyDetailsData({ day, schedule, items, tasks, latestLog }) {
   const detailItems = initializeDailyDetailItems({ day, schedule, items, tasks });
   return splitDailyDetailItems(detailItems, latestLog);
@@ -4193,6 +4622,13 @@ function splitDailyDetailItems(detailItems, latestLog) {
     timeline: sortedItems,
     advice
   };
+}
+
+function buildDailyAdviceNotes(localAdvice = [], aiNotes = [], dayKey) {
+  const savedNotes = aiNotes
+    .filter((note) => datePart(note.note_date || note.created_at) === dayKey)
+    .map((note) => `${note.title}: ${note.message}`);
+  return [...savedNotes, ...localAdvice];
 }
 
 function normalizeDailyTaskStatus(item, task, taskKind, now) {
@@ -4426,14 +4862,46 @@ function buildDailyTaskEditDraft(item) {
 }
 
 function buildActiveTaskUiState(item) {
+  const latestFeedback = item?.feedback?.[item.feedback.length - 1] || null;
   return {
-    subtasks: buildExampleSubtasks(item),
-    resources: [],
+    subtasks: item?.subtasks?.length
+      ? item.subtasks.map(normalizeSubtaskForUi)
+      : buildExampleSubtasks(item),
+    resources: item?.resources?.length
+      ? item.resources.map(normalizeResourceForUi)
+      : [],
     imageDraft: '',
     linkDraft: '',
     feedbackOpen: false,
     feedbackDraft: getDefaultProgressFeedbackDraft(),
-    lastFeedback: null
+    lastFeedback: latestFeedback
+  };
+}
+
+function buildActiveTaskUiFromItems(items = []) {
+  return Object.fromEntries(items.map((item) => [
+    getDetailItemId(item),
+    buildActiveTaskUiState(item)
+  ]));
+}
+
+function normalizeSubtaskForUi(subtask) {
+  return {
+    ...subtask,
+    id: subtask.subtask_id || subtask.id,
+    title: subtask.title,
+    completed: Boolean(subtask.is_completed ?? subtask.completed)
+  };
+}
+
+function normalizeResourceForUi(resource) {
+  return {
+    ...resource,
+    id: resource.resource_id || resource.id || createLocalTaskId(),
+    type: resource.resource_type || resource.type,
+    label: resource.label || shortenUrl(resource.value),
+    value: resource.value,
+    preview: resource.preview_url || resource.preview || ''
   };
 }
 
