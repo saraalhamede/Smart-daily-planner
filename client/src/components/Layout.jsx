@@ -1,10 +1,11 @@
-import { Bot, CalendarDays, Edit3, Eye, LayoutDashboard, LogOut, Menu, Settings, Sparkles } from 'lucide-react';
+import { Bell, Bot, CalendarDays, Edit3, Eye, LayoutDashboard, LogOut, Menu, Settings, Sparkles } from 'lucide-react';
 import { useState } from 'react';
 
 const navItems = [
   { label: 'Calendar', detail: 'Monthly overview', icon: CalendarDays, action: 'calendar' },
   { label: 'Weekly Dashboard', detail: 'Current week', icon: LayoutDashboard, action: 'weekly' },
   { label: 'AI Notes', detail: 'Smart insights', icon: Bot },
+  { label: 'Notifications', detail: 'Needs attention', icon: Bell, action: 'notifications' },
   { label: 'Progress', detail: 'Feedback loop', icon: Sparkles, action: 'progress' },
   { label: 'Settings', detail: 'Preferences', icon: Settings }
 ];
@@ -20,8 +21,10 @@ export function Layout({
   onOpenPlanner,
   onOpenCalendar,
   onOpenAiNotes,
+  onOpenNotifications,
   onOpenSettings,
   onOpenProgress,
+  notificationUnreadCount = 0,
   children
 }) {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -109,6 +112,9 @@ export function Layout({
                 if (item.label === 'AI Notes') {
                   onOpenAiNotes?.();
                 }
+                if (item.action === 'notifications') {
+                  onOpenNotifications?.();
+                }
                 if (item.label === 'Settings') {
                   onOpenSettings?.();
                 }
@@ -119,7 +125,12 @@ export function Layout({
               }}>
               <Icon size={22} />
               <span>
-                <strong>{item.label}</strong>
+                <strong className="sidebar-label-row">
+                  {item.label}
+                  {item.action === 'notifications' && notificationUnreadCount > 0 ? (
+                    <em className="sidebar-badge">{notificationUnreadCount}</em>
+                  ) : null}
+                </strong>
                 <small>{item.detail}</small>
               </span>
             </button>

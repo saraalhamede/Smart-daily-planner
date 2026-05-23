@@ -26,7 +26,8 @@ import {
   Bell,
   UserRound,
   BarChart3,
-  Activity
+  Activity,
+  AlertTriangle
 } from 'lucide-react';
 import { plannerApi } from './api/plannerApi.js';
 import { DailyCheckIn } from './components/DailyCheckIn.jsx';
@@ -39,6 +40,9 @@ import { TaskList } from './components/TaskList.jsx';
 const userId = 'user_demo';
 const registrationKey = 'smartPlannerRegisteredUser';
 const settingsKey = 'smartPlannerSettings';
+const notificationReadKey = 'smartPlannerReadNotifications';
+const notificationRemovedKey = 'smartPlannerRemovedNotifications';
+const notificationFilters = ['All', 'Unread', 'Tasks', 'System', 'Overdue'];
 const defaultLocalUser = {
   first_name: 'Sara',
   last_name: 'Alhamede',
@@ -115,9 +119,21 @@ export function App() {
   const [schedule, setSchedule] = useState(null);
   const [scheduleItems, setScheduleItems] = useState([]);
   const [message, setMessage] = useState('');
+  const [readNotificationIds, setReadNotificationIds] = useState(() => readStoredList(notificationReadKey));
+  const [removedNotificationIds, setRemovedNotificationIds] = useState(() => readStoredList(notificationRemovedKey));
   const [isLoading, setIsLoading] = useState(true);
   const isRegistered = Boolean(localUser);
   const profileUser = buildProfileUser(localUser, bootstrap?.user);
+  const notifications = buildNotifications({
+    tasks,
+    schedule,
+    scheduleItems,
+    latestLog: bootstrap?.latest_daily_log,
+    dailyLogs: bootstrap?.daily_logs || [],
+    readIds: readNotificationIds,
+    removedIds: removedNotificationIds
+  });
+  const unreadNotificationCount = notifications.filter((notification) => notification.status === 'unread').length;
 
   useEffect(() => {
     if (isRegistered) {
@@ -238,6 +254,38 @@ export function App() {
     setMessage('');
   }
 
+  function handleMarkNotificationRead(notificationId) {
+    updateStoredList(notificationReadKey, setReadNotificationIds, (current) => (
+      current.includes(notificationId) ? current : [...current, notificationId]
+    ));
+  }
+
+  function handleRemoveNotification(notificationId) {
+    updateStoredList(notificationRemovedKey, setRemovedNotificationIds, (current) => (
+      current.includes(notificationId) ? current : [...current, notificationId]
+    ));
+  }
+
+  function handleNotificationAction(notification) {
+    handleMarkNotificationRead(notification.id);
+
+    if (notification.action?.type === 'page') {
+      setCurrentPage(notification.action.page);
+      return;
+    }
+
+    if (notification.action?.type === 'day') {
+      const dayKey = notification.action.dayKey || toDateKey(new Date());
+      setSelectedDay(buildNotificationDay(dayKey));
+      setDetailsBackPage('notifications');
+      setCurrentPage(
+        isPastDayKey(dayKey) || hasGeneratedPlanForDay(dayKey, schedule, scheduleItems, tasks)
+          ? 'generated'
+          : 'day'
+      );
+    }
+  }
+
   if (!isRegistered) {
     return <RegistrationScreen onRegister={handleRegister} onExistingAccount={handleUseExistingAccount} />;
   }
@@ -253,8 +301,10 @@ export function App() {
       onOpenAbout={() => setCurrentPage('about')}
       onOpenCalendar={() => setCurrentPage('calendar')}
       onOpenAiNotes={() => setCurrentPage('ai-notes')}
+      onOpenNotifications={() => setCurrentPage('notifications')}
       onOpenSettings={() => setCurrentPage('settings')}
       onOpenProgress={() => setCurrentPage('progress')}
+      notificationUnreadCount={unreadNotificationCount}
       onOpenPlanner={() => setCurrentPage('weekly')}>
       <main className="workspace">
         {profileMode ? (
@@ -287,6 +337,14 @@ export function App() {
             dailyLogs={bootstrap?.daily_logs || []}
             latestLog={bootstrap?.latest_daily_log}
             isLoading={isLoading}
+          />
+        ) : currentPage === 'notifications' ? (
+          <NotificationsPage
+            notifications={notifications}
+            isLoading={isLoading}
+            onMarkRead={handleMarkNotificationRead}
+            onRemove={handleRemoveNotification}
+            onAction={handleNotificationAction}
           />
         ) : currentPage === 'settings' ? (
           <SettingsPage
@@ -858,6 +916,132 @@ function AiNotesPage({ tasks = [], scheduleItems = [], dailyLogs = [], latestLog
         </section>
       </div>
     </section>
+  );
+}
+
+function NotificationsPage({ notifications = [], isLoading, onMarkRead, onRemove, onAction }) {
+  const [activeFilter, setActiveFilter] = useState('All');
+  const filteredNotifications = filterNotifications(notifications, activeFilter);
+  const unreadCount = notifications.filter((notification) => notification.status === 'unread').length;
+
+  if (isLoading) {
+    return <div className="empty-state">Loading notifications...</div>;
+  }
+
+  return (
+    <section className="notifications-page">
+      <div className="notifications-hero">
+        <div>
+          <p className="eyebrow">Notifications</p>
+          <h1>Needs Attention</h1>
+          <span className="toolbar-copy">Important reminders, unfinished tasks, deadlines, and system updates in one place.</span>
+        </div>
+        <div className="notifications-count-card">
+          <Bell size={28} />
+          <strong>{unreadCount}</strong>
+          <span>Unread</span>
+        </div>
+      </div>
+
+      <div className="notification-filter-row" aria-label="Notification filters">
+        {notificationFilters.map((filter) => (
+          <button
+            className={activeFilter === filter ? 'active' : ''}
+            type="button"
+            key={filter}
+            onClick={() => setActiveFilter(filter)}>
+            {filter}
+          </button>
+        ))}
+      </div>
+
+      {filteredNotifications.length === 0 ? (
+        <div className="notifications-empty">
+          <CheckCircle2 size={42} />
+          <div>
+            <strong>You are all caught up.</strong>
+            <span>No notifications yet.</span>
+          </div>
+        </div>
+      ) : (
+        <div className="notification-list">
+          {filteredNotifications.map((notification) => (
+            <NotificationCard
+              notification={notification}
+              key={notification.id}
+              onMarkRead={onMarkRead}
+              onRemove={onRemove}
+              onAction={onAction}
+            />
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function NotificationCard({ notification, onMarkRead, onRemove, onAction }) {
+  const Icon = getNotificationIcon(notification);
+  const isUnread = notification.status === 'unread';
+
+  function markRead() {
+    onMarkRead(notification.id);
+  }
+
+  function handleKeyDown(event) {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      markRead();
+    }
+  }
+
+  return (
+    <article
+      className={`notification-card ${notification.tone || ''} ${isUnread ? 'unread' : 'read'}`}
+      role="button"
+      tabIndex={0}
+      onClick={markRead}
+      onKeyDown={handleKeyDown}>
+      <span className="notification-unread-dot" aria-hidden="true"></span>
+      <span className="notification-icon">
+        <Icon size={22} />
+      </span>
+      <div className="notification-main">
+        <div className="notification-title-row">
+          <strong>{notification.title}</strong>
+          <span className={`notification-status ${notification.status}`}>{notification.status}</span>
+        </div>
+        <p>{notification.message}</p>
+        {notification.taskTitle ? <span className="notification-related">Task: {notification.taskTitle}</span> : null}
+        <div className="notification-meta">
+          <span>{notification.type === 'task' ? 'Task notification' : 'System notification'}</span>
+          <time>{formatNotificationTime(notification.createdAt)}</time>
+        </div>
+      </div>
+      <div className="notification-actions">
+        {notification.actionLabel ? (
+          <button
+            className="notification-action-button"
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              onAction(notification);
+            }}>
+            {notification.actionLabel}
+          </button>
+        ) : null}
+        <button
+          className="notification-remove-button"
+          type="button"
+          aria-label={`Remove ${notification.title}`}
+          onClick={(event) => {
+            event.stopPropagation();
+            onRemove(notification.id);
+          }}>
+          <Trash2 size={16} />
+        </button>
+      </div>
+    </article>
   );
 }
 
@@ -3003,6 +3187,23 @@ function readPlannerSettings() {
   }
 }
 
+function readStoredList(key) {
+  try {
+    const saved = JSON.parse(localStorage.getItem(key) || '[]');
+    return Array.isArray(saved) ? saved.filter((item) => typeof item === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+function updateStoredList(key, setter, updater) {
+  setter((current) => {
+    const next = updater(current);
+    localStorage.setItem(key, JSON.stringify(next));
+    return next;
+  });
+}
+
 function mergeSettings(base, updates) {
   return Object.fromEntries(
     Object.entries(base).map(([section, values]) => [
@@ -3052,6 +3253,239 @@ function buildProfileUser(localUser, serverUser) {
     email: localUser?.email || serverUser?.email || defaultLocalUser.email,
     profile_image: localUser?.profile_image || ''
   };
+}
+
+function buildNotifications({
+  tasks = [],
+  schedule,
+  scheduleItems = [],
+  latestLog,
+  dailyLogs = [],
+  readIds = [],
+  removedIds = []
+}) {
+  const readSet = new Set(readIds);
+  const removedSet = new Set(removedIds);
+  const todayKey = toDateKey(new Date());
+  const taskById = new Map(tasks.map((task) => [task.task_id, task]));
+  const notifications = [];
+
+  scheduleItems.forEach((item) => {
+    const task = taskById.get(item.task_id);
+    if (!task || isTaskCompleted(task) || isTaskArchived(task)) return;
+
+    const endDate = new Date(item.end_time);
+    const dayKey = datePart(item.start_time) || datePart(schedule?.schedule_date) || datePart(task.task_date) || todayKey;
+    if (!isValidDate(endDate) || endDate > new Date() || item.status === 'completed') return;
+
+    notifications.push(createNotification({
+      id: `task-feedback-${item.schedule_item_id || task.task_id}`,
+      type: 'task',
+      tone: 'feedback',
+      title: 'Feedback needed',
+      message: `${task.title} needs feedback from its planned session.`,
+      taskTitle: task.title,
+      createdAt: item.end_time,
+      actionLabel: 'Open task',
+      action: { type: 'day', dayKey }
+    }, readSet));
+  });
+
+  tasks.forEach((task) => {
+    if (!task || isTaskCompleted(task) || isTaskArchived(task)) return;
+
+    const dayKey = datePart(task.task_date) || datePart(task.fixed_date) || todayKey;
+    const deadlineState = getDeadlineState(task, todayKey);
+    const status = String(task.status || '').toLowerCase();
+    const wasUpdatedAfterCreation = Boolean(task.updated_at && task.created_at && task.updated_at !== task.created_at);
+    const base = {
+      type: 'task',
+      taskTitle: task.title,
+      createdAt: task.updated_at || task.created_at || task.deadline || new Date().toISOString(),
+      actionLabel: 'Open day',
+      action: { type: 'day', dayKey }
+    };
+
+    if (deadlineState.tone === 'overdue') {
+      notifications.push(createNotification({
+        ...base,
+        id: `task-overdue-${task.task_id}`,
+        tone: 'overdue',
+        title: 'Overdue task',
+        message: `${task.title} is overdue. Deadline has passed.`
+      }, readSet));
+      return;
+    }
+
+    if (['due', 'close', 'warning'].includes(deadlineState.tone)) {
+      notifications.push(createNotification({
+        ...base,
+        id: `task-deadline-${task.task_id}`,
+        tone: 'deadline',
+        title: 'Close deadline',
+        message: `${task.title} is still unfinished. ${formatDeadlineNotificationMessage(deadlineState)}`
+      }, readSet));
+      return;
+    }
+
+    if (status === 'in_progress' || status === 'active') {
+      notifications.push(createNotification({
+        ...base,
+        id: `task-active-feedback-${task.task_id}`,
+        tone: 'feedback',
+        title: 'Feedback needed',
+        message: `${task.title} is in progress. Add feedback when you finish or pause.`
+      }, readSet));
+      return;
+    }
+
+    if (status === 'pending' && wasUpdatedAfterCreation) {
+      notifications.push(createNotification({
+        ...base,
+        id: `task-returned-${task.task_id}`,
+        tone: 'waiting',
+        title: 'Returned to waiting',
+        message: `${task.title} was returned to Waiting Tasks.`
+      }, readSet));
+      return;
+    }
+
+    notifications.push(createNotification({
+      ...base,
+      id: `task-unfinished-${task.task_id}`,
+      tone: 'task',
+      title: 'Unfinished task',
+      message: `${task.title} is still unfinished.`
+    }, readSet));
+  });
+
+  if (schedule) {
+    notifications.push(createNotification({
+      id: `system-schedule-${schedule.schedule_id}`,
+      type: 'system',
+      tone: 'system',
+      title: 'Schedule generated',
+      message: `Schedule generated successfully for ${formatDateKeyLabel(datePart(schedule.schedule_date) || todayKey)}.`,
+      createdAt: schedule.generated_at || new Date().toISOString(),
+      actionLabel: 'View day',
+      action: { type: 'day', dayKey: datePart(schedule.schedule_date) || todayKey }
+    }, readSet));
+
+    if (schedule.status === 'rescheduled') {
+      notifications.push(createNotification({
+        id: `system-rescheduled-${schedule.schedule_id}`,
+        type: 'system',
+        tone: 'system',
+        title: 'Schedule updated',
+        message: 'Schedule updated after feedback.',
+        createdAt: schedule.generated_at || new Date().toISOString(),
+        actionLabel: 'View day',
+        action: { type: 'day', dayKey: datePart(schedule.schedule_date) || todayKey }
+      }, readSet));
+    }
+  }
+
+  if (latestLog || dailyLogs.length > 0 || tasks.length > 0) {
+    notifications.push(createNotification({
+      id: `system-ai-note-${latestLog?.log_id || todayKey}`,
+      type: 'system',
+      tone: 'system',
+      title: 'AI note available',
+      message: 'A smart note is available from your latest planner activity.',
+      createdAt: latestLog?.created_at || latestLog?.log_date || new Date().toISOString(),
+      actionLabel: 'Open AI Notes',
+      action: { type: 'page', page: 'ai-notes' }
+    }, readSet));
+  }
+
+  if (tasks.length > 0 || scheduleItems.length > 0 || dailyLogs.length > 0) {
+    notifications.push(createNotification({
+      id: `system-weekly-summary-${getWeekStartKey(todayKey)}`,
+      type: 'system',
+      tone: 'system',
+      title: 'Weekly summary ready',
+      message: 'Your weekly progress summary is ready.',
+      createdAt: new Date().toISOString(),
+      actionLabel: 'Open Progress',
+      action: { type: 'page', page: 'progress' }
+    }, readSet));
+  }
+
+  return notifications
+    .filter((notification) => !removedSet.has(notification.id))
+    .sort((a, b) => {
+      if (a.status !== b.status) return a.status === 'unread' ? -1 : 1;
+      return getNotificationTime(b.createdAt) - getNotificationTime(a.createdAt);
+    });
+}
+
+function createNotification(notification, readSet) {
+  return {
+    ...notification,
+    status: readSet.has(notification.id) ? 'read' : 'unread'
+  };
+}
+
+function filterNotifications(notifications, activeFilter) {
+  if (activeFilter === 'Unread') return notifications.filter((notification) => notification.status === 'unread');
+  if (activeFilter === 'Tasks') return notifications.filter((notification) => notification.type === 'task');
+  if (activeFilter === 'System') return notifications.filter((notification) => notification.type === 'system');
+  if (activeFilter === 'Overdue') return notifications.filter((notification) => notification.tone === 'overdue');
+  return notifications;
+}
+
+function getNotificationIcon(notification) {
+  if (notification.tone === 'overdue') return AlertTriangle;
+  if (notification.tone === 'deadline') return Clock3;
+  if (notification.tone === 'feedback' || notification.tone === 'waiting') return RefreshCw;
+  if (notification.type === 'task') return ListChecks;
+  return Bell;
+}
+
+function formatDeadlineNotificationMessage(deadlineState) {
+  if (deadlineState.tone === 'due') return 'Deadline is today.';
+  if (deadlineState.tone === 'close') return 'Deadline is tomorrow.';
+  return `${deadlineState.label}.`;
+}
+
+function formatNotificationTime(value) {
+  const date = new Date(value);
+  if (!isValidDate(date)) return 'Just now';
+
+  return new Intl.DateTimeFormat('en', {
+    month: 'short',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit'
+  }).format(date);
+}
+
+function getNotificationTime(value) {
+  const date = new Date(value);
+  return isValidDate(date) ? date.getTime() : 0;
+}
+
+function buildNotificationDay(dayKey) {
+  const date = new Date(`${dayKey}T00:00:00`);
+  return {
+    key: dayKey,
+    date,
+    dayName: new Intl.DateTimeFormat('en', { weekday: 'short' }).format(date),
+    shortDate: formatDateKeyLabel(dayKey)
+  };
+}
+
+function formatDateKeyLabel(dayKey) {
+  if (!dayKey) return 'selected day';
+  const [, month, day] = dayKey.split('-');
+  return `${day}/${month}`;
+}
+
+function getWeekStartKey(dayKey) {
+  const date = new Date(`${dayKey}T00:00:00`);
+  if (!isValidDate(date)) return dayKey;
+  date.setDate(date.getDate() - date.getDay());
+  return toDateKey(date);
 }
 
 function getMonthWeek(date = new Date()) {
