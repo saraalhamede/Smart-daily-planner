@@ -5,9 +5,13 @@
   "type": "module",
   "scripts": {
     "start": "node server/src/index.js",
+    "server": "node server/src/index.js",
+    "dev": "vite client --host 127.0.0.1 --port 5173",
     "dev:server": "node server/src/index.js",
     "dev:client": "vite client --host 127.0.0.1 --port 5173",
     "build:client": "vite build client --outDir dist",
+    "db:migrate": "node server/src/scripts/runSqlFile.js database/schema.sql",
+    "db:seed": "node server/src/scripts/runSqlFile.js database/seed.sql",
     "check": "node --check server/src/index.js && node --check server/src/app.js"
   },
   "dependencies": {

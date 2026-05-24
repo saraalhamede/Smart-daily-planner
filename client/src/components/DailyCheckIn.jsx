@@ -16,9 +16,10 @@ export function DailyCheckIn({ onSubmit, latestLog, selectedDate, onDraftChange 
   const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
-    setForm(initialState);
-    onDraftChange?.(initialState);
-  }, [selectedDate]);
+    const next = latestLog ? dailyLogToForm(latestLog) : initialState;
+    setForm(next);
+    onDraftChange?.(next);
+  }, [selectedDate, latestLog]);
 
   function updateForm(updates) {
     const next = { ...form, ...updates };
@@ -100,6 +101,24 @@ export function DailyCheckIn({ onSubmit, latestLog, selectedDate, onDraftChange 
       </form>
     </section>
   );
+}
+
+function dailyLogToForm(log) {
+  return {
+    mood_text_original: log.mood_text_original || '',
+    mood_level: log.mood_level || initialState.mood_level,
+    energy_level: log.energy_level || initialState.energy_level,
+    stress_level: log.stress_level || initialState.stress_level,
+    sleep_hours: log.sleep_hours || initialState.sleep_hours,
+    is_tired: Boolean(log.is_tired),
+    planning_start: formatTime(log.planning_start),
+    planning_end: formatTime(log.planning_end)
+  };
+}
+
+function formatTime(value) {
+  if (!value) return '';
+  return String(value).slice(0, 5);
 }
 
 function RangeField({ label, value, onChange }) {

@@ -145,17 +145,140 @@ export function App() {
     }
   }, [isRegistered, activeUserId]);
 
+  useEffect(() => {
+    if (!isRegistered || currentPage !== 'weekly') return undefined;
+    let isCancelled = false;
+    setIsLoading(true);
+    plannerApi.getWeeklyDashboard(activeUserId, toDateKey(new Date()))
+      .then((data) => {
+        if (!isCancelled) {
+          applyPlannerData(data);
+        }
+      })
+      .catch((error) => {
+        if (!isCancelled) {
+          console.error('[App] Failed to load weekly dashboard', error);
+          setMessage(error.message);
+        }
+      })
+      .finally(() => {
+        if (!isCancelled) {
+          setIsLoading(false);
+        }
+      });
+    return () => {
+      isCancelled = true;
+    };
+  }, [isRegistered, activeUserId, currentPage]);
+
+  useEffect(() => {
+    if (!isRegistered || currentPage !== 'settings') return undefined;
+    let isCancelled = false;
+    plannerApi.getSettings(activeUserId)
+      .then((data) => {
+        if (!isCancelled) {
+          applyPlannerData(data);
+        }
+      })
+      .catch((error) => {
+        if (!isCancelled) {
+          console.error('[App] Failed to load settings', error);
+          setMessage(error.message);
+        }
+      });
+    return () => {
+      isCancelled = true;
+    };
+  }, [isRegistered, activeUserId, currentPage]);
+
+  function applyPlannerData(data = {}) {
+    const dailyLogs = data.daily_logs || data.daily_checkins;
+    const nextScheduleItems = data.schedule_items || data.items;
+
+    setBootstrap((current) => {
+      const next = { ...(current || {}) };
+      if (data.user) next.user = data.user;
+      if (data.preferences) next.preferences = data.preferences;
+      if (data.tasks) next.tasks = data.tasks;
+      if (dailyLogs) {
+        next.daily_logs = dailyLogs;
+        next.daily_checkins = dailyLogs;
+        next.latest_daily_log = getLatestByDate(dailyLogs, 'log_date') || next.latest_daily_log || null;
+        next.latest_daily_checkin = next.latest_daily_log;
+      }
+      if (data.schedules) next.schedules = data.schedules;
+      if (data.latest_schedule) next.latest_schedule = data.latest_schedule;
+      if (Object.prototype.hasOwnProperty.call(data, 'schedule')) {
+        next.latest_schedule = data.schedule || next.latest_schedule || null;
+      }
+      if (nextScheduleItems) {
+        next.schedule_items = nextScheduleItems;
+        next.latest_schedule_items = nextScheduleItems;
+      }
+      if (data.ai_notes) next.ai_notes = data.ai_notes;
+      if (data.daily_evaluations) next.daily_evaluations = data.daily_evaluations;
+      if (data.task_feedback) next.task_feedback = data.task_feedback;
+      return next;
+    });
+
+    if (data.tasks) setTasks(data.tasks);
+    if (nextScheduleItems) setScheduleItems(nextScheduleItems);
+    if (data.latest_schedule) setSchedule(data.latest_schedule);
+    if (Object.prototype.hasOwnProperty.call(data, 'schedule')) setSchedule(data.schedule || null);
+    if (data.preferences) {
+      setPlannerSettings((current) => preferencesToSettings(data.preferences, current, data.user || profileUser));
+    }
+  }
+
+  function handlePageDataLoaded(data) {
+    applyPlannerData(data);
+  }
+
+  function handlePageLoadError(error) {
+    console.error('[App] Failed to load page data', error);
+    setMessage(error.message);
+  }
+
+  function handleSelectedDayDataLoaded(dayKey, data = {}) {
+    const dayTasks = data.tasks || [];
+    const dailyLog = data.daily_checkin || data.daily_log || null;
+    const dayItems = data.schedule_items || data.items || [];
+
+    if (dayTasks.length > 0) {
+      setSelectedDayTasks((current) => ({ ...current, [dayKey]: dayTasks }));
+      setTasks((currentTasks) => dayTasks.reduce(
+        (items, task) => upsertById(items, task, 'task_id'),
+        currentTasks
+      ));
+    }
+
+    setBootstrap((current) => {
+      const next = { ...(current || {}) };
+      if (dailyLog) {
+        const nextLogs = upsertById(next.daily_logs || [], dailyLog, 'log_id');
+        next.daily_logs = nextLogs;
+        next.daily_checkins = nextLogs;
+        next.latest_daily_log = getLatestByDate(nextLogs, 'log_date') || dailyLog;
+        next.latest_daily_checkin = next.latest_daily_log;
+      }
+      if (data.ai_notes) next.ai_notes = mergeById(next.ai_notes || [], data.ai_notes, 'note_id');
+      if (data.daily_evaluation) next.daily_evaluations = upsertById(next.daily_evaluations || [], data.daily_evaluation, 'evaluation_id');
+      return next;
+    });
+
+    if (Object.prototype.hasOwnProperty.call(data, 'schedule')) {
+      setSchedule(data.schedule || null);
+    }
+    if (dayItems.length > 0) {
+      setScheduleItems((currentItems) => mergeById(currentItems, dayItems, 'schedule_item_id'));
+    }
+  }
+
   async function loadBootstrap() {
     setIsLoading(true);
     try {
       const data = await plannerApi.bootstrap(activeUserId);
-      setBootstrap(data);
-      setTasks(data.tasks || []);
-      setSchedule(data.latest_schedule || null);
-      setScheduleItems(data.schedule_items || data.latest_schedule_items || []);
-      if (data.preferences) {
-        setPlannerSettings(preferencesToSettings(data.preferences, plannerSettings, data.user));
-      }
+      applyPlannerData(data);
     } catch (error) {
       console.error('[App] Failed to load planner data', error);
       setMessage(error.message);
@@ -387,11 +510,14 @@ export function App() {
           <AboutPage onBack={() => setCurrentPage('weekly')} />
         ) : currentPage === 'calendar' ? (
           <CalendarPage
+            userId={activeUserId}
             tasks={tasks}
             scheduleItems={scheduleItems}
             dailyLogs={bootstrap?.daily_logs || []}
             dailyEvaluations={bootstrap?.daily_evaluations || []}
             isLoading={isLoading}
+            onDataLoaded={handlePageDataLoaded}
+            onError={handlePageLoadError}
             onSelectDay={(day) => {
               setSelectedDay(day);
               setDetailsBackPage('calendar');
@@ -400,12 +526,15 @@ export function App() {
           />
         ) : currentPage === 'ai-notes' ? (
           <AiNotesPage
+            userId={activeUserId}
             tasks={tasks}
             scheduleItems={scheduleItems}
             dailyLogs={bootstrap?.daily_logs || []}
             aiNotes={bootstrap?.ai_notes || []}
             latestLog={bootstrap?.latest_daily_log}
             isLoading={isLoading}
+            onDataLoaded={handlePageDataLoaded}
+            onError={handlePageLoadError}
           />
         ) : currentPage === 'notifications' ? (
           <NotificationsPage
@@ -420,23 +549,28 @@ export function App() {
             user={profileUser}
             settings={plannerSettings}
             onSave={async (nextSettings, nextProfile) => {
-              const result = await plannerApi.savePreferences(activeUserId, { settings: nextSettings });
+              const result = await plannerApi.saveSettings(activeUserId, { settings: nextSettings });
               setPlannerSettings(nextSettings);
               setBootstrap((current) => ({ ...(current || {}), preferences: result.preferences }));
               if (nextProfile) {
                 await handleRegister(nextProfile);
               }
+              const refreshed = await plannerApi.getSettings(activeUserId);
+              applyPlannerData(refreshed);
               setMessage('Changes saved successfully.');
             }}
           />
         ) : currentPage === 'progress' ? (
           <ProgressPage
+            userId={activeUserId}
             tasks={tasks}
             scheduleItems={scheduleItems}
             dailyLogs={bootstrap?.daily_logs || []}
             dailyEvaluations={bootstrap?.daily_evaluations || []}
             latestLog={bootstrap?.latest_daily_log}
             isLoading={isLoading}
+            onDataLoaded={handlePageDataLoaded}
+            onError={handlePageLoadError}
           />
         ) : currentPage === 'weekly' ? (
           <WeeklyDashboard
@@ -458,6 +592,7 @@ export function App() {
           />
         ) : currentPage === 'day' ? (
           <SelectedDayInputPage
+            userId={activeUserId}
             day={selectedDay}
             onBack={() => setCurrentPage('weekly')}
             onDailyLogSubmit={handleDailyLogSubmit}
@@ -466,6 +601,8 @@ export function App() {
             addedTasks={getSelectedDayInputTasks(tasks, selectedDay?.key, selectedDayTasks)}
             onSaveTask={handleSelectedDayTaskSave}
             onDeleteTask={handleSelectedDayTaskDelete}
+            onDayDataLoaded={handleSelectedDayDataLoaded}
+            onError={handlePageLoadError}
           />
         ) : currentPage === 'generated' ? (
           <DailyDetailsPage
@@ -726,7 +863,17 @@ function WeeklyDashboard({ tasks, scheduleItems, latestLog, dailyLogs = [], dail
   );
 }
 
-function CalendarPage({ tasks = [], scheduleItems = [], dailyLogs = [], dailyEvaluations = [], isLoading, onSelectDay }) {
+function CalendarPage({
+  userId,
+  tasks = [],
+  scheduleItems = [],
+  dailyLogs = [],
+  dailyEvaluations = [],
+  isLoading,
+  onSelectDay,
+  onDataLoaded,
+  onError
+}) {
   const [visibleMonth, setVisibleMonth] = useState(() => new Date());
   const [filters, setFilters] = useState({
     tasks: true,
@@ -736,7 +883,37 @@ function CalendarPage({ tasks = [], scheduleItems = [], dailyLogs = [], dailyEva
     meetings: true,
     ai: true
   });
+  const [pageLoading, setPageLoading] = useState(false);
+  const [pageError, setPageError] = useState('');
   const calendarData = buildCalendarMonthData({ visibleMonth, tasks, scheduleItems, dailyLogs, dailyEvaluations });
+
+  useEffect(() => {
+    if (!userId) return undefined;
+    let isCancelled = false;
+    setPageLoading(true);
+    setPageError('');
+    plannerApi.getCalendarMonth(userId, visibleMonth.getMonth() + 1, visibleMonth.getFullYear())
+      .then((data) => {
+        if (!isCancelled) {
+          onDataLoaded?.(data);
+        }
+      })
+      .catch((error) => {
+        if (!isCancelled) {
+          console.error('[CalendarPage] Failed to load month data', error);
+          setPageError(error.message);
+          onError?.(error);
+        }
+      })
+      .finally(() => {
+        if (!isCancelled) {
+          setPageLoading(false);
+        }
+      });
+    return () => {
+      isCancelled = true;
+    };
+  }, [userId, visibleMonth]);
 
   function moveMonth(direction) {
     setVisibleMonth((current) => new Date(current.getFullYear(), current.getMonth() + direction, 1));
@@ -746,7 +923,7 @@ function CalendarPage({ tasks = [], scheduleItems = [], dailyLogs = [], dailyEva
     setFilters((current) => ({ ...current, [name]: !current[name] }));
   }
 
-  if (isLoading) {
+  if (isLoading || pageLoading) {
     return <div className="empty-state">Loading calendar...</div>;
   }
 
@@ -775,6 +952,13 @@ function CalendarPage({ tasks = [], scheduleItems = [], dailyLogs = [], dailyEva
         <div className="new-user-note">
           <strong>No activity yet</strong>
           <span>Start adding tasks and daily check-ins to see your monthly progress.</span>
+        </div>
+      ) : null}
+
+      {pageError ? (
+        <div className="new-user-note">
+          <strong>Could not load calendar data</strong>
+          <span>{pageError}</span>
         </div>
       ) : null}
 
@@ -867,12 +1051,52 @@ function CalendarPage({ tasks = [], scheduleItems = [], dailyLogs = [], dailyEva
   );
 }
 
-function AiNotesPage({ tasks = [], scheduleItems = [], dailyLogs = [], aiNotes = [], latestLog, isLoading }) {
+function AiNotesPage({
+  userId,
+  tasks = [],
+  scheduleItems = [],
+  dailyLogs = [],
+  aiNotes = [],
+  latestLog,
+  isLoading,
+  onDataLoaded,
+  onError
+}) {
   const [period, setPeriod] = useState('weekly');
+  const [pageLoading, setPageLoading] = useState(false);
+  const [pageError, setPageError] = useState('');
   const insights = buildAiNotesInsights({ tasks, scheduleItems, dailyLogs, latestLog, period });
   const visibleNotes = filterAiNotesByPeriod(aiNotes, period);
 
-  if (isLoading) {
+  useEffect(() => {
+    if (!userId) return undefined;
+    let isCancelled = false;
+    setPageLoading(true);
+    setPageError('');
+    plannerApi.getAiNotes(userId, period)
+      .then((data) => {
+        if (!isCancelled) {
+          onDataLoaded?.(data);
+        }
+      })
+      .catch((error) => {
+        if (!isCancelled) {
+          console.error('[AiNotesPage] Failed to load AI notes', error);
+          setPageError(error.message);
+          onError?.(error);
+        }
+      })
+      .finally(() => {
+        if (!isCancelled) {
+          setPageLoading(false);
+        }
+      });
+    return () => {
+      isCancelled = true;
+    };
+  }, [userId, period]);
+
+  if (isLoading || pageLoading) {
     return <div className="empty-state">Loading AI notes...</div>;
   }
 
@@ -908,6 +1132,16 @@ function AiNotesPage({ tasks = [], scheduleItems = [], dailyLogs = [], aiNotes =
           </div>
         </div>
       )}
+
+      {pageError ? (
+        <div className="ai-empty-state">
+          <AlertTriangle size={42} />
+          <div>
+            <strong>Could not load AI notes.</strong>
+            <span>{pageError}</span>
+          </div>
+        </div>
+      ) : null}
 
       <div className="ai-kpi-grid">
         {insights.kpis.map((item) => (
@@ -1533,11 +1767,51 @@ function SettingsPage({ user, settings, onSave }) {
   );
 }
 
-function ProgressPage({ tasks = [], scheduleItems = [], dailyLogs = [], dailyEvaluations = [], latestLog, isLoading }) {
+function ProgressPage({
+  userId,
+  tasks = [],
+  scheduleItems = [],
+  dailyLogs = [],
+  dailyEvaluations = [],
+  latestLog,
+  isLoading,
+  onDataLoaded,
+  onError
+}) {
   const [period, setPeriod] = useState('weekly');
+  const [pageLoading, setPageLoading] = useState(false);
+  const [pageError, setPageError] = useState('');
   const progress = buildProgressDashboardData({ tasks, scheduleItems, dailyLogs, dailyEvaluations, latestLog, period });
 
-  if (isLoading) {
+  useEffect(() => {
+    if (!userId) return undefined;
+    let isCancelled = false;
+    setPageLoading(true);
+    setPageError('');
+    plannerApi.getProgress(userId, period)
+      .then((data) => {
+        if (!isCancelled) {
+          onDataLoaded?.(data);
+        }
+      })
+      .catch((error) => {
+        if (!isCancelled) {
+          console.error('[ProgressPage] Failed to load progress data', error);
+          setPageError(error.message);
+          onError?.(error);
+        }
+      })
+      .finally(() => {
+        if (!isCancelled) {
+          setPageLoading(false);
+        }
+      });
+    return () => {
+      isCancelled = true;
+    };
+  }, [userId, period]);
+
+  if (isLoading || pageLoading) {
     return <div className="empty-state">Loading progress dashboard...</div>;
   }
 
@@ -1573,6 +1847,16 @@ function ProgressPage({ tasks = [], scheduleItems = [], dailyLogs = [], dailyEva
           </div>
         </div>
       )}
+
+      {pageError ? (
+        <div className="progress-empty-state">
+          <AlertTriangle size={42} />
+          <div>
+            <strong>Could not load progress data.</strong>
+            <span>{pageError}</span>
+          </div>
+        </div>
+      ) : null}
 
       <div className="progress-score-grid">
         <ProgressScoreCard label="Today's productivity" value={progress.todayScore} tone={progress.todayScore >= 70 ? 'good' : progress.todayScore >= 45 ? 'medium' : 'low'} />
@@ -1712,6 +1996,7 @@ function ToggleSetting({ label, checked, onChange }) {
 }
 
 function SelectedDayInputPage({
+  userId,
   day,
   onBack,
   onDailyLogSubmit,
@@ -1719,18 +2004,50 @@ function SelectedDayInputPage({
   latestLog,
   addedTasks,
   onSaveTask,
-  onDeleteTask
+  onDeleteTask,
+  onDayDataLoaded,
+  onError
 }) {
   const [checkInDraft, setCheckInDraft] = useState(getDefaultCheckInDraft());
   const [taskDraft, setTaskDraft] = useState(null);
   const [editingTaskId, setEditingTaskId] = useState(null);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [pageLoading, setPageLoading] = useState(false);
+  const [pageError, setPageError] = useState('');
   const dayKey = day?.key || toDateKey(new Date());
   const dayTitle = formatSelectedDayHeading(day);
   const editingTask = addedTasks.find((task) => getPreviewTaskId(task) === editingTaskId) || null;
   const validation = validateSelectedDayInput(checkInDraft, addedTasks);
   const canGenerate = validation.isValid && !isGenerating;
   const isReviewMode = isPastDayKey(dayKey);
+
+  useEffect(() => {
+    if (!userId || !dayKey) return undefined;
+    let isCancelled = false;
+    setPageLoading(true);
+    setPageError('');
+    plannerApi.getDay(userId, dayKey)
+      .then((data) => {
+        if (!isCancelled) {
+          onDayDataLoaded?.(dayKey, data);
+        }
+      })
+      .catch((error) => {
+        if (!isCancelled) {
+          console.error('[SelectedDayInputPage] Failed to load selected day', error);
+          setPageError(error.message);
+          onError?.(error);
+        }
+      })
+      .finally(() => {
+        if (!isCancelled) {
+          setPageLoading(false);
+        }
+      });
+    return () => {
+      isCancelled = true;
+    };
+  }, [userId, dayKey]);
 
   async function handleTaskPreviewSubmit(task) {
     await onSaveTask(dayKey, task, editingTask);
@@ -1835,6 +2152,8 @@ function SelectedDayInputPage({
           <p className="eyebrow">Next Step</p>
           <h2>Ready to generate this day?</h2>
           <span>The system will save the selected-day input, run the scheduler, and open the result page.</span>
+          {pageLoading ? <em className="generate-requirements">Loading saved data for this day...</em> : null}
+          {pageError ? <em className="generate-requirements">{pageError}</em> : null}
           {!validation.isValid ? <em className="generate-requirements">{validation.message}</em> : null}
         </div>
         <button className="primary-action" type="button" onClick={handleGenerateClick} disabled={!canGenerate}>
@@ -4578,6 +4897,16 @@ function upsertById(items, item, key) {
   return exists
     ? items.map((current) => (current?.[key] === value ? item : current))
     : [...items, item];
+}
+
+function mergeById(items = [], nextItems = [], key) {
+  return nextItems.reduce((current, item) => upsertById(current, item, key), items);
+}
+
+function getLatestByDate(items = [], field) {
+  return [...items]
+    .filter((item) => item?.[field])
+    .sort((a, b) => new Date(b[field]) - new Date(a[field]))[0] || null;
 }
 
 function getPreviewTaskId(task) {

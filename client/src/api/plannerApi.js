@@ -57,11 +57,21 @@ export const plannerApi = {
   bootstrap(userId) {
     return request(`/api/bootstrap?userId=${encode(userId)}`);
   },
+  getWeeklyDashboard(userId, date) {
+    const query = date ? `&date=${encode(date)}` : '';
+    return request(`/api/dashboard/week?userId=${encode(userId)}${query}`);
+  },
+  getCalendarMonth(userId, month, year) {
+    return request(`/api/calendar/month?userId=${encode(userId)}&month=${encode(month)}&year=${encode(year)}`);
+  },
+  getDay(userId, date) {
+    return request(`/api/day/${encode(date)}?userId=${encode(userId)}`);
+  },
   getDailyCheckins(userId) {
     return request(`/api/daily-checkins?userId=${encode(userId)}`);
   },
   createDailyLog(payload) {
-    return request('/api/daily-checkins', {
+    return request('/api/checkins', {
       method: 'POST',
       body: JSON.stringify(payload)
     });
@@ -89,11 +99,20 @@ export const plannerApi = {
   getSchedules(userId) {
     return request(`/api/schedules?userId=${encode(userId)}`);
   },
+  getScheduleForDate(userId, date) {
+    return request(`/api/schedules/${encode(date)}?userId=${encode(userId)}`);
+  },
   getDailyDetails(userId, date) {
-    return request(`/api/daily-details?userId=${encode(userId)}&date=${encode(date)}`);
+    return request(`/api/day/${encode(date)}/details?userId=${encode(userId)}`);
   },
   getFeedback(userId) {
     return request(`/api/feedback?userId=${encode(userId)}`);
+  },
+  getAiNotes(userId, period = 'weekly') {
+    return request(`/api/ai-notes?userId=${encode(userId)}&period=${encode(period)}`);
+  },
+  getProgress(userId, period = 'weekly') {
+    return request(`/api/progress?userId=${encode(userId)}&period=${encode(period)}`);
   },
   generateSchedule(input) {
     const payload = typeof input === 'string' ? { user_id: input } : input;
@@ -132,12 +151,21 @@ export const plannerApi = {
     });
   },
   savePreferences(userId, payload) {
-    return request(`/api/preferences/${encode(userId)}`, {
+    return request(`/api/settings/${encode(userId)}`, {
       method: 'PUT',
       body: JSON.stringify(payload)
     });
   },
   getPreferences(userId) {
-    return request(`/api/preferences/${encode(userId)}`);
+    return request(`/api/settings/${encode(userId)}`);
+  },
+  getSettings(userId) {
+    return request(`/api/settings/${encode(userId)}`);
+  },
+  saveSettings(userId, payload) {
+    return request(`/api/settings/${encode(userId)}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload)
+    });
   }
 };

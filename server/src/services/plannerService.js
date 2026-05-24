@@ -192,6 +192,195 @@ export async function getDailyDetails(userId, date) {
   };
 }
 
+export async function getDayData(userId, date) {
+  if (!date) throw createHttpError(400, 'date is required.');
+  const [tasks, dailyLogs, schedule, items, aiNotes, dailyEvaluations] = await Promise.all([
+    store.listTasks(userId),
+    store.listDailyLogs(userId),
+    store.getScheduleByDate(userId, date),
+    store.listScheduleItemsForDate(userId, date),
+    store.listAiNotes(userId),
+    store.listDailyEvaluations(userId)
+  ]);
+  return {
+    date,
+    daily_checkin: dailyLogs.find((log) => dateOnly(log.log_date) === date) || null,
+    daily_log: dailyLogs.find((log) => dateOnly(log.log_date) === date) || null,
+    tasks: tasks.filter((task) => isTaskVisibleOnDate(task, date)),
+    schedule,
+    schedule_items: items,
+    items,
+    ai_notes: aiNotes.filter((note) => dateOnly(note.note_date || note.created_at) === date),
+    daily_evaluation: dailyEvaluations.find((evaluation) => dateOnly(evaluation.evaluation_date) === date) || null
+  };
+}
+
+export async function getScheduleForDate(userId, date) {
+  if (!date) throw createHttpError(400, 'date is required.');
+  const [schedule, items] = await Promise.all([
+    store.getScheduleByDate(userId, date),
+    store.listScheduleItemsForDate(userId, date)
+  ]);
+  return { schedule, items, schedule_items: items };
+}
+
+export async function getWeeklyDashboard(userId, date = todayKey()) {
+  const weekDays = getWeekDayKeys(date);
+  const weekSet = new Set(weekDays);
+  const [tasks, scheduleItems, dailyLogs, dailyEvaluations] = await Promise.all([
+    store.listTasks(userId),
+    store.listAllScheduleItems(userId),
+    store.listDailyLogs(userId),
+    store.listDailyEvaluations(userId)
+  ]);
+  const evaluationByDate = new Map(dailyEvaluations.map((evaluation) => [dateOnly(evaluation.evaluation_date), evaluation]));
+  const checkinByDate = new Map(dailyLogs.map((log) => [dateOnly(log.log_date), log]));
+  const taskCounts = weekDays.map((dayKey) => {
+    const dayTasks = tasks.filter((task) => isTaskVisibleOnDate(task, dayKey));
+    const completed = dayTasks.filter((task) => Boolean(task.is_completed) || task.status === 'completed').length;
+    const evaluation = evaluationByDate.get(dayKey);
+    return {
+      date: dayKey,
+      total_tasks: dayTasks.length,
+      completed_tasks: completed,
+      completion_percentage: evaluation?.completion_percentage ?? (dayTasks.length ? Math.round((completed / dayTasks.length) * 100) : 0),
+      productivity_score: evaluation?.productivity_score ?? null,
+      stress_level: checkinByDate.get(dayKey)?.stress_level ?? null
+    };
+  });
+  const scoredDays = taskCounts.map((day) => day.productivity_score).filter((score) => score !== null);
+
+  return {
+    date,
+    week_start: weekDays[0],
+    week_end: weekDays[weekDays.length - 1],
+    days: taskCounts,
+    unfinished_tasks: tasks.filter((task) => (
+      !task.is_completed &&
+      task.status !== 'completed' &&
+      !['removed', 'deleted', 'cancelled'].includes(String(task.status || '').toLowerCase()) &&
+      weekDays.some((dayKey) => isTaskVisibleOnDate(task, dayKey))
+    )),
+    weekly_productivity_score: scoredDays.length
+      ? Math.round(scoredDays.reduce((sum, score) => sum + Number(score), 0) / scoredDays.length)
+      : null,
+    tasks,
+    schedule_items: scheduleItems.filter((item) => weekSet.has(dateOnly(item.start_time))),
+    daily_logs: dailyLogs.filter((log) => weekSet.has(dateOnly(log.log_date))),
+    daily_checkins: dailyLogs.filter((log) => weekSet.has(dateOnly(log.log_date))),
+    daily_evaluations: dailyEvaluations.filter((evaluation) => weekSet.has(dateOnly(evaluation.evaluation_date)))
+  };
+}
+
+export async function getCalendarMonth(userId, month, year) {
+  const now = new Date();
+  const monthNumber = parseInteger(month, now.getMonth() + 1);
+  const yearNumber = parseInteger(year, now.getFullYear());
+  const firstDay = `${yearNumber}-${String(monthNumber).padStart(2, '0')}-01`;
+  const lastDate = new Date(yearNumber, monthNumber, 0);
+  const lastDay = dateOnly(lastDate);
+  const [tasks, scheduleItems, dailyLogs, dailyEvaluations] = await Promise.all([
+    store.listTasks(userId),
+    store.listAllScheduleItems(userId),
+    store.listDailyLogs(userId),
+    store.listDailyEvaluations(userId)
+  ]);
+  const days = [];
+  for (let day = 1; day <= lastDate.getDate(); day += 1) {
+    const key = `${yearNumber}-${String(monthNumber).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    const dayTasks = tasks.filter((task) => isTaskVisibleOnDate(task, key));
+    const completed = dayTasks.filter((task) => Boolean(task.is_completed) || task.status === 'completed').length;
+    const evaluation = dailyEvaluations.find((item) => dateOnly(item.evaluation_date) === key);
+    const checkin = dailyLogs.find((item) => dateOnly(item.log_date) === key);
+    days.push({
+      date: key,
+      task_count: dayTasks.length,
+      deadline_count: dayTasks.filter((task) => task.deadline && !task.is_completed).length,
+      completion_percentage: evaluation?.completion_percentage ?? (dayTasks.length ? Math.round((completed / dayTasks.length) * 100) : 0),
+      productivity_score: evaluation?.productivity_score ?? null,
+      mood_level: checkin?.mood_level ?? null,
+      stress_level: checkin?.stress_level ?? null
+    });
+  }
+
+  return {
+    month: monthNumber,
+    year: yearNumber,
+    start_date: firstDay,
+    end_date: lastDay,
+    days,
+    tasks,
+    schedule_items: scheduleItems.filter((item) => {
+      const key = dateOnly(item.start_time);
+      return key >= firstDay && key <= lastDay;
+    }),
+    daily_logs: dailyLogs.filter((log) => {
+      const key = dateOnly(log.log_date);
+      return key >= firstDay && key <= lastDay;
+    }),
+    daily_checkins: dailyLogs.filter((log) => {
+      const key = dateOnly(log.log_date);
+      return key >= firstDay && key <= lastDay;
+    }),
+    daily_evaluations: dailyEvaluations.filter((evaluation) => {
+      const key = dateOnly(evaluation.evaluation_date);
+      return key >= firstDay && key <= lastDay;
+    })
+  };
+}
+
+export async function getAiNotes(userId, period = 'weekly') {
+  const startDate = getPeriodStartKey(period);
+  const [aiNotes, dailyLogs, feedback, dailyEvaluations] = await Promise.all([
+    store.listAiNotes(userId),
+    store.listDailyLogs(userId),
+    store.listFeedback(userId),
+    store.listDailyEvaluations(userId)
+  ]);
+  return {
+    period,
+    ai_notes: aiNotes.filter((note) => dateOnly(note.note_date || note.created_at) >= startDate),
+    daily_logs: dailyLogs.filter((log) => dateOnly(log.log_date || log.created_at) >= startDate),
+    daily_checkins: dailyLogs.filter((log) => dateOnly(log.log_date || log.created_at) >= startDate),
+    task_feedback: feedback.filter((item) => dateOnly(item.created_at) >= startDate),
+    daily_evaluations: dailyEvaluations.filter((evaluation) => dateOnly(evaluation.evaluation_date) >= startDate)
+  };
+}
+
+export async function getProgressSummary(userId, period = 'weekly') {
+  const startDate = getPeriodStartKey(period);
+  const [tasks, scheduleItems, dailyLogs, feedback, dailyEvaluations] = await Promise.all([
+    store.listTasks(userId),
+    store.listAllScheduleItems(userId),
+    store.listDailyLogs(userId),
+    store.listFeedback(userId),
+    store.listDailyEvaluations(userId)
+  ]);
+  const filteredTasks = tasks.filter((task) => (dateOnly(task.completed_on || task.completed_at || task.task_date || task.created_at) || todayKey()) >= startDate);
+  const completedTasks = filteredTasks.filter((task) => Boolean(task.is_completed) || task.status === 'completed');
+  const plannedMinutes = scheduleItems
+    .filter((item) => dateOnly(item.start_time) >= startDate)
+    .reduce((sum, item) => sum + getDurationMinutes(item.start_time, item.end_time), 0);
+  const actualMinutes = scheduleItems
+    .filter((item) => dateOnly(item.start_time) >= startDate)
+    .reduce((sum, item) => sum + (parseOptionalInteger(item.actual_duration_minutes) || 0), 0);
+
+  return {
+    period,
+    completed_tasks: completedTasks.length,
+    unfinished_tasks: filteredTasks.length - completedTasks.length,
+    completion_percentage: filteredTasks.length ? Math.round((completedTasks.length / filteredTasks.length) * 100) : 0,
+    planned_minutes: plannedMinutes,
+    actual_minutes: actualMinutes,
+    tasks,
+    schedule_items: scheduleItems.filter((item) => dateOnly(item.start_time) >= startDate),
+    daily_logs: dailyLogs.filter((log) => dateOnly(log.log_date || log.created_at) >= startDate),
+    daily_checkins: dailyLogs.filter((log) => dateOnly(log.log_date || log.created_at) >= startDate),
+    task_feedback: feedback.filter((item) => dateOnly(item.created_at) >= startDate),
+    daily_evaluations: dailyEvaluations.filter((evaluation) => dateOnly(evaluation.evaluation_date) >= startDate)
+  };
+}
+
 export async function createDailyLog(input) {
   validateDailyCheckin(input);
 
@@ -836,6 +1025,20 @@ function shouldTaskBeAvailableForSchedule(task, targetDate) {
   return !task.deadline || targetDate <= dateOnly(task.deadline) || targetDate >= startDate;
 }
 
+function isTaskVisibleOnDate(task, targetDate) {
+  if (!task || ['removed', 'deleted', 'cancelled'].includes(String(task.status || '').toLowerCase())) return false;
+  if (task.is_fixed_time) return dateOnly(task.fixed_date) === targetDate;
+
+  const completedDate = dateOnly(task.completed_on || task.completed_at);
+  if (completedDate) return completedDate === targetDate;
+
+  const startDate = dateOnly(task.task_date || task.created_at);
+  const deadlineDate = dateOnly(task.deadline);
+  if (startDate && targetDate < startDate) return false;
+  if (deadlineDate && targetDate <= deadlineDate) return true;
+  return startDate === targetDate;
+}
+
 function normalizePreferencesForScheduler(preferences) {
   if (!preferences) return null;
   return {
@@ -921,6 +1124,26 @@ function assertWritableDay(dayKey) {
   }
 }
 
+function getWeekDayKeys(dateValue) {
+  const base = new Date(`${dateOnly(dateValue) || todayKey()}T00:00:00`);
+  const start = new Date(base);
+  start.setDate(base.getDate() - base.getDay());
+  return Array.from({ length: 7 }, (_, index) => {
+    const date = new Date(start);
+    date.setDate(start.getDate() + index);
+    return dateOnly(date);
+  });
+}
+
+function getPeriodStartKey(period) {
+  const now = new Date();
+  if (period === 'daily') return dateOnly(now);
+  if (period === 'monthly') return dateOnly(new Date(now.getFullYear(), now.getMonth(), 1));
+  const start = new Date(now);
+  start.setDate(now.getDate() - now.getDay());
+  return dateOnly(start);
+}
+
 function latestRecord(records, field = 'created_at') {
   return [...records].sort((a, b) => new Date(b[field]) - new Date(a[field]))[0] || null;
 }
@@ -946,12 +1169,20 @@ function normalizeDateTimeInput(value) {
 
 function dateOnly(value) {
   if (!value) return null;
-  if (value instanceof Date) return value.toISOString().slice(0, 10);
+  if (value instanceof Date) return formatDateKey(value);
   return String(value).slice(0, 10);
 }
 
 function todayKey() {
-  return new Date().toISOString().slice(0, 10);
+  return formatDateKey(new Date());
+}
+
+function formatDateKey(date) {
+  return [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, '0'),
+    String(date.getDate()).padStart(2, '0')
+  ].join('-');
 }
 
 function getDurationMinutes(start, end) {
