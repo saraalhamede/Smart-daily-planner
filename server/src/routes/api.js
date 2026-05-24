@@ -1,15 +1,19 @@
 import { Router } from 'express';
 import {
   addTaskResource,
+  analyzeMoodRequest,
+  classifyTaskRequest,
   createDailyLog,
   createTask,
   deleteTaskResource,
+  estimateTimeRequest,
   getAiNotes,
   getCalendarMonth,
   getDailyCheckins,
   getDailyDetails,
   getDayData,
   generateSchedule,
+  generateScheduleHintsRequest,
   getBootstrap,
   getProgressSummary,
   getScheduleForDate,
@@ -50,6 +54,38 @@ apiRouter.post('/auth/login', async (req, res, next) => {
 apiRouter.get('/bootstrap', async (req, res, next) => {
   try {
     res.json(await getBootstrap(req.query.userId || 'user_demo'));
+  } catch (error) {
+    next(error);
+  }
+});
+
+apiRouter.post('/ai/analyze-mood', async (req, res, next) => {
+  try {
+    res.json(await analyzeMoodRequest(req.body));
+  } catch (error) {
+    next(error);
+  }
+});
+
+apiRouter.post('/ai/classify-task', async (req, res, next) => {
+  try {
+    res.json(await classifyTaskRequest(req.body));
+  } catch (error) {
+    next(error);
+  }
+});
+
+apiRouter.post('/ai/estimate-time', async (req, res, next) => {
+  try {
+    res.json(await estimateTimeRequest(req.body));
+  } catch (error) {
+    next(error);
+  }
+});
+
+apiRouter.post('/ai/generate-schedule', async (req, res, next) => {
+  try {
+    res.json(await generateScheduleHintsRequest(req.body));
   } catch (error) {
     next(error);
   }

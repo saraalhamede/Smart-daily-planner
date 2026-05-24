@@ -25,6 +25,9 @@ function normalizeMysqlValue(value) {
   if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(value)) {
     return formatMysqlDateTime(new Date(value));
   }
+  if (value && typeof value === 'object') {
+    return JSON.stringify(value);
+  }
   return value;
 }
 
@@ -405,6 +408,26 @@ export const mysqlStore = {
 
   insertAiNote(record) {
     return insert('ai_notes', record);
+  },
+
+  insertAiPrediction(record) {
+    return insert('ai_predictions', record);
+  },
+
+  insertEmotionLog(record) {
+    return insert('emotion_logs', record);
+  },
+
+  insertEnergyPrediction(record) {
+    return insert('energy_predictions', record);
+  },
+
+  insertRecommendation(record) {
+    return insert('recommendations', record);
+  },
+
+  insertSchedulingResult(record) {
+    return insert('scheduling_results', record);
   },
 
   listDailyEvaluations(userId) {

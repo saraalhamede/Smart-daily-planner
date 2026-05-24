@@ -540,7 +540,78 @@ Node.js / Express API
 -> Python AI Service
 ```
 
-For now, AI notes and smart recommendations are generated with rule-based logic or placeholders inside the Node.js backend. The Python AI service is planned for a later phase.
+The Python AI service has now started. It is used as a supportive analysis layer, while the final scheduling decisions remain controlled by the Node.js rule-based scheduler.
+
+### Python AI Service - Started 2026-05-24
+
+Python service folder:
+
+```text
+ai_service/
+```
+
+Run the AI service:
+
+```bash
+npm run ai
+```
+
+Default AI service URL:
+
+```text
+http://127.0.0.1:8000
+```
+
+AI service health endpoint:
+
+```text
+GET /ai/health
+```
+
+Current Python AI endpoints:
+
+- `POST /ai/analyze-mood`
+- `POST /ai/classify-task`
+- `POST /ai/estimate-time`
+- `POST /ai/generate-schedule`
+
+Current backend proxy/support endpoints:
+
+- `POST /api/ai/analyze-mood`
+- `POST /api/ai/classify-task`
+- `POST /api/ai/estimate-time`
+- `POST /api/ai/generate-schedule`
+
+Current AI implementation mode:
+
+- rule-based baseline modules
+- clean API contracts
+- safe backend fallback if Python is offline
+- future-ready structure for RoBERTa, BERT, DistilBERT, or regression models
+
+Important design rule:
+
+```text
+Python AI gives predictions and hints.
+Node.js rule-based scheduler makes the final schedule.
+```
+
+AI modules currently scaffolded:
+
+- Mood and energy analysis
+- Task categorization
+- Time estimation
+- Scheduler support hints
+
+AI outputs are saved in MySQL when used by real planner actions.
+
+New AI database tables:
+
+- ai_predictions
+- emotion_logs
+- energy_predictions
+- recommendations
+- scheduling_results
 
 ### MySQL Database
 
@@ -862,6 +933,15 @@ http://127.0.0.1:3000
 ## Development Change Log
 
 ### 2026-05-24
+- Started the Python AI service layer under `ai_service/`.
+- Added Python endpoints for mood analysis, task classification, time estimation, and scheduler support hints.
+- Added backend AI proxy routes under `/api/ai/...`.
+- Connected daily check-in saving to Python mood analysis with Node rule-based fallback.
+- Connected task creation to Python task classification and optional time estimation.
+- Connected schedule generation to Python scheduler hints while keeping final scheduling rule-based in Node.
+- Added MySQL tables for AI predictions, emotion logs, energy predictions, recommendations, and scheduling results.
+- Added `npm run ai` and `npm run dev:ai` scripts.
+- Added `.env.example` with safe database and AI service configuration keys.
 - Created and verified the MySQL schema for the main planner tables.
 - Added a reusable SQL runner script for migration and seeding.
 - Added demo seed data for the demo account, daily check-ins, tasks, schedule items, feedback, resources, AI notes, and evaluations.

@@ -1,0 +1,5 @@
+Flask>=3.0,<4.0
+
+# Optional future model layer:
+# transformers>=4.40
+# torch

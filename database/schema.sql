@@ -205,6 +205,83 @@ CREATE TABLE IF NOT EXISTS daily_evaluations (
   FOREIGN KEY (schedule_id) REFERENCES schedules(schedule_id) ON DELETE SET NULL
 );
 
+CREATE TABLE IF NOT EXISTS ai_predictions (
+  prediction_id VARCHAR(40) PRIMARY KEY,
+  user_id VARCHAR(40) NOT NULL,
+  related_checkin_id VARCHAR(40),
+  related_task_id VARCHAR(40),
+  related_schedule_id VARCHAR(40),
+  module_name VARCHAR(80) NOT NULL,
+  model_name VARCHAR(120),
+  source VARCHAR(40) NOT NULL DEFAULT 'python_ai_service',
+  confidence DECIMAL(5,4),
+  input_json JSON,
+  output_json JSON NOT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
+  FOREIGN KEY (related_checkin_id) REFERENCES daily_checkins(checkin_id) ON DELETE SET NULL,
+  FOREIGN KEY (related_task_id) REFERENCES tasks(task_id) ON DELETE SET NULL,
+  FOREIGN KEY (related_schedule_id) REFERENCES schedules(schedule_id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS emotion_logs (
+  emotion_log_id VARCHAR(40) PRIMARY KEY,
+  user_id VARCHAR(40) NOT NULL,
+  checkin_id VARCHAR(40),
+  emotion VARCHAR(50),
+  predicted_mood VARCHAR(50),
+  stress_estimation TINYINT,
+  fatigue_detected BOOLEAN NOT NULL DEFAULT FALSE,
+  fatigue_score TINYINT,
+  source VARCHAR(40) NOT NULL DEFAULT 'python_ai_service',
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
+  FOREIGN KEY (checkin_id) REFERENCES daily_checkins(checkin_id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS energy_predictions (
+  energy_prediction_id VARCHAR(40) PRIMARY KEY,
+  user_id VARCHAR(40) NOT NULL,
+  checkin_id VARCHAR(40),
+  predicted_energy_level TINYINT NOT NULL,
+  energy_insight TEXT,
+  confidence DECIMAL(5,4),
+  source VARCHAR(40) NOT NULL DEFAULT 'python_ai_service',
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
+  FOREIGN KEY (checkin_id) REFERENCES daily_checkins(checkin_id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS recommendations (
+  recommendation_id VARCHAR(40) PRIMARY KEY,
+  user_id VARCHAR(40) NOT NULL,
+  recommendation_date DATE,
+  related_task_id VARCHAR(40),
+  related_schedule_id VARCHAR(40),
+  recommendation_type VARCHAR(60) NOT NULL,
+  title VARCHAR(160) NOT NULL,
+  message TEXT NOT NULL,
+  source VARCHAR(40) NOT NULL DEFAULT 'python_ai_service',
+  confidence DECIMAL(5,4),
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
+  FOREIGN KEY (related_task_id) REFERENCES tasks(task_id) ON DELETE SET NULL,
+  FOREIGN KEY (related_schedule_id) REFERENCES schedules(schedule_id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS scheduling_results (
+  scheduling_result_id VARCHAR(40) PRIMARY KEY,
+  user_id VARCHAR(40) NOT NULL,
+  schedule_id VARCHAR(40),
+  schedule_date DATE NOT NULL,
+  ai_hints_json JSON,
+  rule_summary_json JSON,
+  final_decision_owner VARCHAR(80) NOT NULL DEFAULT 'node_rule_based_scheduler',
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
+  FOREIGN KEY (schedule_id) REFERENCES schedules(schedule_id) ON DELETE CASCADE
+);
+
 INSERT INTO users (user_id, full_name, email, password_hash, profile_image)
 SELECT 'user_demo', 'Sara Alhamede', 'sara@smart-planner.local', 'dev:demo123', NULL
 WHERE NOT EXISTS (SELECT 1 FROM users LIMIT 1);

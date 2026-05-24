@@ -6,8 +6,10 @@
   "scripts": {
     "start": "node server/src/index.js",
     "server": "node server/src/index.js",
+    "ai": "python ai_service/service.py",
     "dev": "vite client --host 127.0.0.1 --port 5173",
     "dev:server": "node server/src/index.js",
+    "dev:ai": "python ai_service/service.py",
     "dev:client": "vite client --host 127.0.0.1 --port 5173",
     "build:client": "vite build client --outDir dist",
     "db:migrate": "node server/src/scripts/runSqlFile.js database/schema.sql",

@@ -1,18 +1,27 @@
 import crypto from 'node:crypto';
-import { analyzeMoodEnergy, categorizeTask } from '../logic/ai.js';
+import { categorizeTask } from '../logic/ai.js';
 import { generateDailySchedule } from '../logic/scheduler.js';
 import { createId } from '../utils/id.js';
 import { createHttpError } from '../utils/httpError.js';
 import { getStore } from '../data/store.js';
+import {
+  analyzeMoodWithAi,
+  classifyTaskWithAi,
+  estimateTimeWithAi,
+  generateScheduleHintsWithAi,
+  getAiServiceHealth
+} from './aiClient.js';
 
 const store = await getStore();
 
 export async function getHealth() {
   const database = await store.healthCheck();
+  const aiService = await getAiServiceHealth();
   return {
     status: database.connected ? 'ok' : 'error',
     server: 'ok',
-    database
+    database,
+    ai_service: aiService
   };
 }
 
@@ -381,8 +390,81 @@ export async function getProgressSummary(userId, period = 'weekly') {
   };
 }
 
+export async function analyzeMoodRequest(input) {
+  const analysis = await analyzeMoodWithAi(input);
+  if (input.user_id) {
+    await insertIfSupported('insertAiPrediction', {
+      prediction_id: createId('pred'),
+      user_id: input.user_id,
+      module_name: 'mood_analysis',
+      model_name: analysis.model || null,
+      source: analysis.source || 'python_ai_service',
+      confidence: analysis.confidence ?? null,
+      input_json: input,
+      output_json: analysis,
+      created_at: new Date().toISOString()
+    });
+  }
+  return { analysis };
+}
+
+export async function classifyTaskRequest(input) {
+  const classification = await classifyTaskWithAi(input);
+  if (input.user_id) {
+    await insertIfSupported('insertAiPrediction', {
+      prediction_id: createId('pred'),
+      user_id: input.user_id,
+      module_name: 'task_classification',
+      model_name: classification.model || null,
+      source: classification.source || 'python_ai_service',
+      confidence: classification.confidence ?? null,
+      input_json: input,
+      output_json: classification,
+      created_at: new Date().toISOString()
+    });
+  }
+  return { classification };
+}
+
+export async function estimateTimeRequest(input) {
+  const estimation = await estimateTimeWithAi(input);
+  if (input.user_id) {
+    await insertIfSupported('insertAiPrediction', {
+      prediction_id: createId('pred'),
+      user_id: input.user_id,
+      module_name: 'time_estimation',
+      model_name: estimation.model || null,
+      source: estimation.source || 'python_ai_service',
+      confidence: estimation.confidence ?? null,
+      input_json: input,
+      output_json: estimation,
+      created_at: new Date().toISOString()
+    });
+  }
+  return { estimation };
+}
+
+export async function generateScheduleHintsRequest(input) {
+  const hints = await generateScheduleHintsWithAi(input);
+  if (input.user_id) {
+    await insertIfSupported('insertAiPrediction', {
+      prediction_id: createId('pred'),
+      user_id: input.user_id,
+      module_name: 'scheduler_hints',
+      model_name: hints.model || null,
+      source: hints.source || 'python_ai_service',
+      confidence: hints.confidence ?? null,
+      input_json: input,
+      output_json: hints,
+      created_at: new Date().toISOString()
+    });
+  }
+  return { hints };
+}
+
 export async function createDailyLog(input) {
   validateDailyCheckin(input);
+  const moodAnalysis = await analyzeMoodWithAi(input);
 
   const record = {
     checkin_id: input.checkin_id || input.log_id || createId('checkin'),
@@ -396,16 +478,24 @@ export async function createDailyLog(input) {
     planning_start: input.planning_start || null,
     planning_end: input.planning_end || null,
     mood_text_original: input.mood_text_original || '',
-    ...analyzeMoodEnergy(input),
+    detected_language: moodAnalysis.detected_language,
+    mood_text_translated: moodAnalysis.mood_text_translated ?? input.mood_text_original ?? '',
+    detected_emotion: moodAnalysis.detected_emotion || moodAnalysis.predicted_mood,
+    predicted_energy_level: parseInteger(moodAnalysis.predicted_energy_level, parseInteger(input.energy_level, 3)),
+    ai_advice: moodAnalysis.ai_advice || moodAnalysis.energy_insights || '',
     created_at: new Date().toISOString()
   };
 
-  return store.insertDailyLog(record);
+  const saved = await store.insertDailyLog(record);
+  await persistMoodAiOutputs(saved, input, moodAnalysis);
+  return saved;
 }
 
 export async function createTask(input) {
-  const task = await buildTaskRecord(input);
-  return store.insertTask(task);
+  const { task, aiOutputs } = await buildTaskRecord(input);
+  const saved = await store.insertTask(task);
+  await persistTaskAiOutputs(saved, input, aiOutputs);
+  return saved;
 }
 
 export async function updateTask(taskId, input) {
@@ -463,6 +553,14 @@ export async function generateSchedule(input) {
     throw createHttpError(400, 'Add at least one task before generating the schedule.');
   }
 
+  const aiHints = await generateScheduleHintsWithAi({
+    user_id: userId,
+    daily_checkin: context.dailyLog,
+    preferences: context.preferences,
+    tasks: dayTasks,
+    feedback: context.feedback
+  });
+
   const draft = generateDailySchedule({
     userId,
     dailyLog: context.dailyLog,
@@ -472,7 +570,7 @@ export async function generateSchedule(input) {
     scheduleDate: context.dailyLog.log_date
   });
 
-  return saveSchedule(userId, context.dailyLog.log_id, draft, 'active');
+  return saveSchedule(userId, context.dailyLog.log_id, draft, 'active', aiHints);
 }
 
 export async function submitFeedback(input) {
@@ -723,6 +821,15 @@ async function rescheduleAfterFeedback(feedback) {
     store.listFeedback(feedback.user_id)
   ]);
 
+  const aiHints = await generateScheduleHintsWithAi({
+    user_id: feedback.user_id,
+    daily_checkin: dailyLog,
+    preferences,
+    tasks,
+    feedback: feedbackList,
+    feedback_context: feedback
+  });
+
   const draft = generateDailySchedule({
     userId: feedback.user_id,
     dailyLog,
@@ -734,10 +841,10 @@ async function rescheduleAfterFeedback(feedback) {
     feedbackContext: feedback
   });
 
-  return saveSchedule(feedback.user_id, dailyLog.log_id, draft, 'rescheduled');
+  return saveSchedule(feedback.user_id, dailyLog.log_id, draft, 'rescheduled', aiHints);
 }
 
-async function saveSchedule(userId, dailyLogId, draft, status) {
+async function saveSchedule(userId, dailyLogId, draft, status, aiHints = null) {
   const schedule = {
     schedule_id: createId('schedule'),
     user_id: userId,
@@ -766,6 +873,7 @@ async function saveSchedule(userId, dailyLogId, draft, status) {
 
   const saved = await store.insertScheduleWithItems(schedule, items);
   await saveScheduleNotes(userId, saved.schedule, draft);
+  await persistSchedulingAiOutputs(userId, saved.schedule, draft, aiHints);
   await saveDailyEvaluationForDate(userId, draft.schedule_date);
   return saved;
 }
@@ -798,6 +906,142 @@ async function saveScheduleNotes(userId, schedule, draft) {
     ...note,
     created_at: new Date().toISOString()
   })));
+}
+
+async function persistMoodAiOutputs(savedCheckin, input, analysis) {
+  if (!savedCheckin?.user_id || !analysis) return;
+  const now = new Date().toISOString();
+  await Promise.allSettled([
+    insertIfSupported('insertAiPrediction', {
+      prediction_id: createId('pred'),
+      user_id: savedCheckin.user_id,
+      related_checkin_id: savedCheckin.checkin_id || savedCheckin.log_id,
+      module_name: 'mood_analysis',
+      model_name: analysis.model || null,
+      source: analysis.source || 'python_ai_service',
+      confidence: analysis.confidence ?? null,
+      input_json: input,
+      output_json: analysis,
+      created_at: now
+    }),
+    insertIfSupported('insertEmotionLog', {
+      emotion_log_id: createId('emotion'),
+      user_id: savedCheckin.user_id,
+      checkin_id: savedCheckin.checkin_id || savedCheckin.log_id,
+      emotion: analysis.detected_emotion || null,
+      predicted_mood: analysis.predicted_mood || analysis.detected_emotion || null,
+      stress_estimation: parseOptionalInteger(analysis.stress_estimation),
+      fatigue_detected: Boolean(analysis.fatigue_detected),
+      fatigue_score: parseOptionalInteger(analysis.fatigue_score),
+      source: analysis.source || 'python_ai_service',
+      created_at: now
+    }),
+    insertIfSupported('insertEnergyPrediction', {
+      energy_prediction_id: createId('energy'),
+      user_id: savedCheckin.user_id,
+      checkin_id: savedCheckin.checkin_id || savedCheckin.log_id,
+      predicted_energy_level: parseInteger(analysis.predicted_energy_level, savedCheckin.predicted_energy_level || savedCheckin.energy_level || 3),
+      energy_insight: analysis.energy_insights || analysis.ai_advice || null,
+      confidence: analysis.confidence ?? null,
+      source: analysis.source || 'python_ai_service',
+      created_at: now
+    }),
+    insertIfSupported('insertRecommendation', {
+      recommendation_id: createId('rec'),
+      user_id: savedCheckin.user_id,
+      recommendation_date: dateOnly(savedCheckin.log_date || savedCheckin.checkin_date) || todayKey(),
+      recommendation_type: 'mood_energy',
+      title: 'Mood and energy recommendation',
+      message: analysis.ai_advice || analysis.energy_insights || 'Use daily check-in signals to tune today schedule.',
+      source: analysis.source || 'python_ai_service',
+      confidence: analysis.confidence ?? null,
+      created_at: now
+    })
+  ]);
+}
+
+async function persistTaskAiOutputs(savedTask, input, aiOutputs = {}) {
+  if (!savedTask?.user_id) return;
+  const now = new Date().toISOString();
+  const writes = [];
+
+  if (aiOutputs.classification) {
+    writes.push(insertIfSupported('insertAiPrediction', {
+      prediction_id: createId('pred'),
+      user_id: savedTask.user_id,
+      related_task_id: savedTask.task_id,
+      module_name: 'task_classification',
+      model_name: aiOutputs.classification.model || null,
+      source: aiOutputs.classification.source || 'python_ai_service',
+      confidence: aiOutputs.classification.confidence ?? null,
+      input_json: input,
+      output_json: aiOutputs.classification,
+      created_at: now
+    }));
+  }
+
+  if (aiOutputs.timeEstimation) {
+    writes.push(insertIfSupported('insertAiPrediction', {
+      prediction_id: createId('pred'),
+      user_id: savedTask.user_id,
+      related_task_id: savedTask.task_id,
+      module_name: 'time_estimation',
+      model_name: aiOutputs.timeEstimation.model || null,
+      source: aiOutputs.timeEstimation.source || 'python_ai_service',
+      confidence: aiOutputs.timeEstimation.confidence ?? null,
+      input_json: input,
+      output_json: aiOutputs.timeEstimation,
+      created_at: now
+    }));
+  }
+
+  await Promise.allSettled(writes);
+}
+
+async function persistSchedulingAiOutputs(userId, schedule, draft, aiHints) {
+  if (!userId || !schedule) return;
+  const now = new Date().toISOString();
+  await Promise.allSettled([
+    insertIfSupported('insertSchedulingResult', {
+      scheduling_result_id: createId('schedai'),
+      user_id: userId,
+      schedule_id: schedule.schedule_id,
+      schedule_date: draft.schedule_date,
+      ai_hints_json: aiHints || {},
+      rule_summary_json: {
+        schedule_note: draft.schedule_note,
+        item_count: draft.items.length,
+        fixed_count: draft.items.filter((item) => item.task_kind === 'fixed').length,
+        flexible_count: draft.items.filter((item) => item.task_kind !== 'fixed').length
+      },
+      final_decision_owner: 'node_rule_based_scheduler',
+      created_at: now
+    }),
+    aiHints ? insertIfSupported('insertAiPrediction', {
+      prediction_id: createId('pred'),
+      user_id: userId,
+      related_schedule_id: schedule.schedule_id,
+      module_name: 'scheduler_hints',
+      model_name: aiHints.model || null,
+      source: aiHints.source || 'python_ai_service',
+      confidence: aiHints.confidence ?? null,
+      input_json: { schedule_date: draft.schedule_date },
+      output_json: aiHints,
+      created_at: now
+    }) : Promise.resolve(),
+    aiHints?.recommendations?.[0] ? insertIfSupported('insertRecommendation', {
+      recommendation_id: createId('rec'),
+      user_id: userId,
+      recommendation_date: draft.schedule_date,
+      related_schedule_id: schedule.schedule_id,
+      recommendation_type: 'scheduler_hint',
+      title: 'AI scheduling hint',
+      message: aiHints.recommendations[0],
+      source: aiHints.source || 'python_ai_service',
+      confidence: aiHints.confidence ?? null,
+      created_at: now
+    }) : Promise.resolve()
+  ]);
 }
 
 async function saveDailyEvaluationForDate(userId, date) {
@@ -872,8 +1116,27 @@ async function autoTransitionFixedTasks(userId, date) {
 }
 
 async function buildTaskRecord(input) {
-  const enriched = categorizeTask(input);
-  const isFixed = Boolean(input.is_fixed_time || input.task_type === 'fixed');
+  const classification = await classifyTaskWithAi(input);
+  const taskInput = {
+    ...input,
+    category: input.category || classification.task_category,
+    task_type: input.task_type || classification.task_type
+  };
+  const enriched = categorizeTask(taskInput);
+  let timeEstimation = null;
+  if (!input.estimated_duration_minutes || Number.parseInt(input.estimated_duration_minutes, 10) <= 0) {
+    timeEstimation = await estimateTimeWithAi({
+      ...taskInput,
+      task_category: enriched.category,
+      task_description: input.description,
+      difficulty_level: input.difficulty_level || enriched.difficulty_level
+    });
+    enriched.estimated_duration_minutes = parseInteger(
+      timeEstimation.estimated_duration_minutes,
+      enriched.estimated_duration_minutes
+    );
+  }
+  const isFixed = Boolean(input.is_fixed_time || taskInput.task_type === 'fixed');
   const task = {
     task_id: createId('task'),
     user_id: input.user_id || 'user_demo',
@@ -904,7 +1167,13 @@ async function buildTaskRecord(input) {
     if (conflict) throw createHttpError(409, `This fixed-time task overlaps with "${conflict.title}".`);
   }
 
-  return task;
+  return {
+    task,
+    aiOutputs: {
+      classification,
+      timeEstimation
+    }
+  };
 }
 
 function buildTaskUpdates(input, existing) {
@@ -1156,6 +1425,11 @@ function parseInteger(value, fallback) {
 function parseOptionalInteger(value) {
   const parsed = Number.parseInt(value, 10);
   return Number.isNaN(parsed) ? null : parsed;
+}
+
+async function insertIfSupported(methodName, record) {
+  if (typeof store[methodName] !== 'function') return null;
+  return store[methodName](record);
 }
 
 function cleanUndefined(record) {
