@@ -2757,8 +2757,8 @@ function DailyDetailsPage({
     });
     setDetailItems(nextItems);
     setActiveTaskUi((current) => ({
-      ...buildActiveTaskUiFromItems(nextItems),
-      ...current
+      ...current,
+      ...buildActiveTaskUiFromItems(nextItems)
     }));
   }
 
@@ -3117,7 +3117,9 @@ function InProgressTaskCard({
         </div>
         <p className="progress-copy">Progress: {progress}% - {completedSubtasks}/{uiState.subtasks.length} completed</p>
         <div className="subtask-list">
-          {uiState.subtasks.map((subtask) => (
+          {uiState.subtasks.length === 0 ? (
+            <span className="subtask-row">Generating task breakdown...</span>
+          ) : uiState.subtasks.map((subtask) => (
             <label className="subtask-row" key={subtask.id}>
               <input
                 type="checkbox"
@@ -5222,7 +5224,7 @@ function buildActiveTaskUiState(item) {
   return {
     subtasks: item?.subtasks?.length
       ? item.subtasks.map(normalizeSubtaskForUi)
-      : buildExampleSubtasks(item),
+      : [],
     resources: item?.resources?.length
       ? item.resources.map(normalizeResourceForUi)
       : [],
@@ -5259,15 +5261,6 @@ function normalizeResourceForUi(resource) {
     value: resource.value,
     preview: resource.preview_url || resource.preview || ''
   };
-}
-
-function buildExampleSubtasks(item) {
-  const title = item?.title || 'current task';
-  return [
-    { id: 'step_1', title: `Plan the main steps for "${title}"`, completed: false },
-    { id: 'step_2', title: 'Work on the main part', completed: false },
-    { id: 'step_3', title: 'Review and fix issues', completed: false }
-  ];
 }
 
 function getDefaultProgressFeedbackDraft() {

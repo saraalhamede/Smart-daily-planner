@@ -125,13 +125,45 @@ CREATE TABLE IF NOT EXISTS task_subtasks (
   schedule_item_id VARCHAR(40),
   title VARCHAR(220) NOT NULL,
   is_completed BOOLEAN NOT NULL DEFAULT FALSE,
+  order_index INT NOT NULL DEFAULT 0,
   sort_order INT NOT NULL DEFAULT 0,
+  generated_by_ai BOOLEAN NOT NULL DEFAULT FALSE,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
   FOREIGN KEY (task_id) REFERENCES tasks(task_id) ON DELETE CASCADE,
   FOREIGN KEY (schedule_item_id) REFERENCES schedule_items(schedule_item_id) ON DELETE CASCADE
 );
+
+SET @add_order_index := (
+  SELECT IF(
+    COUNT(*) = 0,
+    'ALTER TABLE task_subtasks ADD COLUMN order_index INT NOT NULL DEFAULT 0 AFTER is_completed',
+    'SELECT 1'
+  )
+  FROM INFORMATION_SCHEMA.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE()
+    AND TABLE_NAME = 'task_subtasks'
+    AND COLUMN_NAME = 'order_index'
+);
+PREPARE add_order_index_stmt FROM @add_order_index;
+EXECUTE add_order_index_stmt;
+DEALLOCATE PREPARE add_order_index_stmt;
+
+SET @add_generated_by_ai := (
+  SELECT IF(
+    COUNT(*) = 0,
+    'ALTER TABLE task_subtasks ADD COLUMN generated_by_ai BOOLEAN NOT NULL DEFAULT FALSE AFTER sort_order',
+    'SELECT 1'
+  )
+  FROM INFORMATION_SCHEMA.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE()
+    AND TABLE_NAME = 'task_subtasks'
+    AND COLUMN_NAME = 'generated_by_ai'
+);
+PREPARE add_generated_by_ai_stmt FROM @add_generated_by_ai;
+EXECUTE add_generated_by_ai_stmt;
+DEALLOCATE PREPARE add_generated_by_ai_stmt;
 
 CREATE TABLE IF NOT EXISTS task_resources (
   resource_id VARCHAR(40) PRIMARY KEY,
@@ -175,12 +207,44 @@ CREATE TABLE IF NOT EXISTS ai_notes (
   note_type VARCHAR(40) NOT NULL,
   title VARCHAR(160) NOT NULL,
   message TEXT NOT NULL,
+  scope VARCHAR(20) NOT NULL DEFAULT 'daily',
+  priority TINYINT NOT NULL DEFAULT 3,
   source VARCHAR(40) NOT NULL DEFAULT 'rule_based',
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
   FOREIGN KEY (schedule_id) REFERENCES schedules(schedule_id) ON DELETE SET NULL,
   FOREIGN KEY (related_task_id) REFERENCES tasks(task_id) ON DELETE SET NULL
 );
+
+SET @add_ai_notes_scope := (
+  SELECT IF(
+    COUNT(*) = 0,
+    'ALTER TABLE ai_notes ADD COLUMN scope VARCHAR(20) NOT NULL DEFAULT ''daily'' AFTER message',
+    'SELECT 1'
+  )
+  FROM INFORMATION_SCHEMA.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE()
+    AND TABLE_NAME = 'ai_notes'
+    AND COLUMN_NAME = 'scope'
+);
+PREPARE add_ai_notes_scope_stmt FROM @add_ai_notes_scope;
+EXECUTE add_ai_notes_scope_stmt;
+DEALLOCATE PREPARE add_ai_notes_scope_stmt;
+
+SET @add_ai_notes_priority := (
+  SELECT IF(
+    COUNT(*) = 0,
+    'ALTER TABLE ai_notes ADD COLUMN priority TINYINT NOT NULL DEFAULT 3 AFTER scope',
+    'SELECT 1'
+  )
+  FROM INFORMATION_SCHEMA.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE()
+    AND TABLE_NAME = 'ai_notes'
+    AND COLUMN_NAME = 'priority'
+);
+PREPARE add_ai_notes_priority_stmt FROM @add_ai_notes_priority;
+EXECUTE add_ai_notes_priority_stmt;
+DEALLOCATE PREPARE add_ai_notes_priority_stmt;
 
 CREATE TABLE IF NOT EXISTS daily_evaluations (
   evaluation_id VARCHAR(40) PRIMARY KEY,

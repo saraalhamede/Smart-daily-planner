@@ -574,6 +574,7 @@ Current Python AI endpoints:
 - `POST /ai/classify-task`
 - `POST /ai/estimate-time`
 - `POST /ai/generate-schedule`
+- `POST /ai/generate-subtasks`
 
 Current backend proxy/support endpoints:
 
@@ -581,6 +582,7 @@ Current backend proxy/support endpoints:
 - `POST /api/ai/classify-task`
 - `POST /api/ai/estimate-time`
 - `POST /api/ai/generate-schedule`
+- `POST /api/ai/generate-subtasks`
 
 Current AI implementation mode:
 
@@ -602,6 +604,7 @@ AI modules currently scaffolded:
 - Task categorization
 - Time estimation
 - Scheduler support hints
+- Subtask generation for Task Breakdown
 
 AI outputs are saved in MySQL when used by real planner actions.
 
@@ -612,6 +615,16 @@ New AI database tables:
 - energy_predictions
 - recommendations
 - scheduling_results
+
+Task Breakdown update:
+
+- The Task In Progress checklist is no longer hardcoded.
+- When the user starts a scheduled task, the backend sends the task title, description, category, difficulty level, and estimated duration to the Python AI service.
+- Python returns small actionable subtasks.
+- The backend saves them in `task_subtasks`.
+- The UI displays the saved subtasks as checkboxes.
+- Progress is calculated as completed subtasks divided by total subtasks.
+- Checking a subtask updates `task_subtasks.is_completed` in MySQL.
 
 ### MySQL Database
 
@@ -933,6 +946,14 @@ http://127.0.0.1:3000
 ## Development Change Log
 
 ### 2026-05-24
+- Updated Task Breakdown so subtasks are generated dynamically by the Python AI service when a task starts.
+- Added Python endpoint `POST /ai/generate-subtasks`.
+- Added backend proxy endpoint `POST /api/ai/generate-subtasks`.
+- Added `order_index` and `generated_by_ai` fields to `task_subtasks`.
+- Stopped inserting hardcoded default subtasks during schedule creation.
+- Saved AI-generated subtasks to MySQL and returned them to the Daily Details UI.
+- Removed static fallback subtasks from the Task In Progress UI.
+- Verified subtask checkbox updates still persist and progress reaches 100% when all subtasks are checked.
 - Started the Python AI service layer under `ai_service/`.
 - Added Python endpoints for mood analysis, task classification, time estimation, and scheduler support hints.
 - Added backend AI proxy routes under `/api/ai/...`.

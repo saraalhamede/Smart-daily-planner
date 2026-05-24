@@ -51,6 +51,24 @@ export async function generateScheduleHintsWithAi(payload) {
   }
 }
 
+export async function generateSubtasksWithAi(payload) {
+  try {
+    return await callAiService('/ai/generate-subtasks', payload);
+  } catch (error) {
+    console.warn('[AI] Subtask generation fallback used:', error.message);
+    return fallbackSubtasks(payload, error);
+  }
+}
+
+export async function generateAdviceWithAi(payload) {
+  try {
+    return await callAiService('/ai/generate-advice', payload);
+  } catch (error) {
+    console.warn('[AI] Advice generation fallback used:', error.message);
+    return fallbackAdvice(payload, error);
+  }
+}
+
 async function callAiService(path, payload, method = 'POST') {
   if (process.env.AI_SERVICE_ENABLED === 'false') {
     throw new Error('AI service is disabled.');
@@ -142,6 +160,82 @@ function fallbackScheduleHints(payload, error) {
     recommendations: ['Use the Node rule-based scheduler with local fallback hints.'],
     confidence: 0.45,
     fallback_reason: error.message
+  };
+}
+
+function fallbackSubtasks(payload, error) {
+  const description = String(payload.description || '');
+  const pieces = description
+    .split(/[.;,]|\band\b/i)
+    .map((piece) => piece.trim().replace(/^(then|also|to)\s+/i, ''))
+    .filter((piece) => piece.length > 3)
+    .slice(0, 5);
+  const fallbackPieces = pieces.length > 0
+    ? pieces
+    : [
+        `Review ${payload.title || 'task'} requirements`,
+        'Complete the main work',
+        'Review and finalize'
+      ];
+  return {
+    module: 'subtask_generation',
+    source: 'node_rule_based_fallback',
+    model: 'local_action_extractor',
+    subtasks: fallbackPieces.map((title, index) => ({
+      title: title.charAt(0).toUpperCase() + title.slice(1),
+      order_index: index + 1
+    })),
+    confidence: 0.45,
+    fallback_reason: error.message
+  };
+}
+
+function fallbackAdvice(payload, error) {
+  const scope = payload.scope || payload.period || 'daily';
+  const advice = [];
+  const checkin = payload.daily_checkin || payload;
+  const energy = parseInteger(checkin.predicted_energy_level || checkin.energy_level, 3);
+  const stress = parseInteger(checkin.stress_level, 3);
+  const sleep = Number.parseFloat(checkin.sleep_hours || 7);
+  const unfinished = parseInteger(payload.unfinished_tasks_count, 0);
+  const completed = parseInteger(payload.completed_tasks_count, 0);
+  const productivity = Number.parseInt(payload.productivity_score, 10);
+
+  if (energy <= 2 || sleep < 5.5) {
+    advice.push(buildAdviceNote('energy', 'Low energy plan', 'Your energy is low today. Start with easier tasks and add short breaks before difficult work.', 1, scope, payload));
+  }
+  if (stress >= 4) {
+    advice.push(buildAdviceNote('stress', 'High stress warning', 'Your stress level is high. Avoid placing many difficult tasks together.', 1, scope, payload));
+  }
+  if (unfinished > completed && unfinished > 1) {
+    advice.push(buildAdviceNote('productivity', 'Focus unfinished tasks', `You still have ${unfinished} unfinished tasks. Start with the highest-priority item.`, 2, scope, payload));
+  }
+  if (!Number.isNaN(productivity) && productivity >= 80) {
+    advice.push(buildAdviceNote('productivity', 'Good progress today', 'Good progress today. Keep using your strongest energy hours for difficult tasks.', 3, scope, payload));
+  }
+  if (advice.length === 0) {
+    advice.push(buildAdviceNote('recommendation', 'Keep the plan balanced', 'Use task progress and feedback to keep the next schedule realistic.', 3, scope, payload));
+  }
+
+  return {
+    module: 'advice_generation',
+    source: 'node_rule_based_fallback',
+    model: 'local_advice_rules',
+    advice,
+    confidence: 0.45,
+    fallback_reason: error.message
+  };
+}
+
+function buildAdviceNote(adviceType, title, message, priority, scope, payload) {
+  return {
+    advice_type: adviceType,
+    title,
+    message,
+    priority,
+    scope,
+    related_date: payload.date || payload.related_date || null,
+    related_task_id: null
   };
 }
 

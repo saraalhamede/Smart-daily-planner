@@ -8,7 +8,9 @@ import {
   analyzeMoodWithAi,
   classifyTaskWithAi,
   estimateTimeWithAi,
+  generateAdviceWithAi,
   generateScheduleHintsWithAi,
+  generateSubtasksWithAi,
   getAiServiceHealth
 } from './aiClient.js';
 
@@ -179,25 +181,39 @@ export async function getDailyDetails(userId, date) {
   if (!date) throw createHttpError(400, 'date is required.');
   await autoTransitionFixedTasks(userId, date);
 
-  const [schedule, items, tasks, dailyLogs, feedback, aiNotes, dailyEvaluations] = await Promise.all([
+  const [schedule, items, tasks, dailyLogs, feedback, dailyEvaluations] = await Promise.all([
     store.getScheduleByDate(userId, date),
     store.listScheduleItemsForDate(userId, date),
     store.listTasks(userId),
     store.listDailyLogs(userId),
     store.listFeedback(userId),
-    store.listAiNotes(userId),
     store.listDailyEvaluations(userId)
   ]);
+
+  const dailyCheckin = dailyLogs.find((log) => dateOnly(log.log_date) === date) || null;
+  const dayFeedback = feedback.filter((item) => !item.schedule_item_id || items.some((scheduleItem) => scheduleItem.schedule_item_id === item.schedule_item_id));
+  const dailyEvaluation = dailyEvaluations.find((evaluation) => dateOnly(evaluation.evaluation_date) === date) || null;
+  await ensureAdviceNotes(buildDailyAdviceContext({
+    userId,
+    date,
+    schedule,
+    items,
+    tasks,
+    dailyCheckin,
+    feedback: dayFeedback,
+    dailyEvaluation
+  }));
+  const latestAiNotes = await store.listAiNotes(userId);
 
   return {
     schedule,
     items,
     schedule_items: items,
     tasks,
-    daily_checkin: dailyLogs.find((log) => dateOnly(log.log_date) === date) || null,
-    task_feedback: feedback.filter((item) => !item.schedule_item_id || items.some((scheduleItem) => scheduleItem.schedule_item_id === item.schedule_item_id)),
-    ai_notes: aiNotes.filter((note) => dateOnly(note.note_date || note.created_at) === date),
-    daily_evaluation: dailyEvaluations.find((evaluation) => dateOnly(evaluation.evaluation_date) === date) || null
+    daily_checkin: dailyCheckin,
+    task_feedback: dayFeedback,
+    ai_notes: latestAiNotes.filter((note) => dateOnly(note.note_date || note.created_at) === date),
+    daily_evaluation: dailyEvaluation
   };
 }
 
@@ -340,12 +356,24 @@ export async function getCalendarMonth(userId, month, year) {
 
 export async function getAiNotes(userId, period = 'weekly') {
   const startDate = getPeriodStartKey(period);
-  const [aiNotes, dailyLogs, feedback, dailyEvaluations] = await Promise.all([
-    store.listAiNotes(userId),
+  const [dailyLogs, feedback, dailyEvaluations, tasks, scheduleItems] = await Promise.all([
     store.listDailyLogs(userId),
     store.listFeedback(userId),
-    store.listDailyEvaluations(userId)
+    store.listDailyEvaluations(userId),
+    store.listTasks(userId),
+    store.listAllScheduleItems(userId)
   ]);
+  await ensureAdviceNotes(buildPeriodAdviceContext({
+    userId,
+    period,
+    startDate,
+    dailyLogs,
+    feedback,
+    dailyEvaluations,
+    tasks,
+    scheduleItems
+  }));
+  const aiNotes = await store.listAiNotes(userId);
   return {
     period,
     ai_notes: aiNotes.filter((note) => dateOnly(note.note_date || note.created_at) >= startDate),
@@ -460,6 +488,44 @@ export async function generateScheduleHintsRequest(input) {
     });
   }
   return { hints };
+}
+
+export async function generateSubtasksRequest(input) {
+  const result = await generateSubtasksWithAi(input);
+  if (input.user_id) {
+    await insertIfSupported('insertAiPrediction', {
+      prediction_id: createId('pred'),
+      user_id: input.user_id,
+      related_task_id: input.task_id || null,
+      module_name: 'subtask_generation',
+      model_name: result.model || null,
+      source: result.source || 'python_ai_service',
+      confidence: result.confidence ?? null,
+      input_json: input,
+      output_json: result,
+      created_at: new Date().toISOString()
+    });
+  }
+  return result;
+}
+
+export async function generateAdviceRequest(input) {
+  const result = await generateAdviceWithAi(input);
+  if (input.user_id) {
+    await insertIfSupported('insertAiPrediction', {
+      prediction_id: createId('pred'),
+      user_id: input.user_id,
+      related_task_id: input.related_task_id || null,
+      module_name: 'advice_generation',
+      model_name: result.model || null,
+      source: result.source || 'python_ai_service',
+      confidence: result.confidence ?? null,
+      input_json: input,
+      output_json: result,
+      created_at: new Date().toISOString()
+    });
+  }
+  return result;
 }
 
 export async function createDailyLog(input) {
@@ -633,6 +699,9 @@ export async function updateScheduleItemStatus(scheduleItemId, input) {
   }
 
   const updatedItem = await store.updateScheduleItem(scheduleItemId, updates);
+  if (status === 'in_progress') {
+    await ensureAiSubtasksForItem(schedule.user_id, updatedItem);
+  }
   await updateTaskForScheduleStatus(updatedItem, status, dayKey);
   const evaluation = await saveDailyEvaluationForDate(schedule.user_id, dayKey);
   const items = await store.listScheduleItemsForDate(schedule.user_id, dayKey);
@@ -1042,6 +1111,70 @@ async function persistSchedulingAiOutputs(userId, schedule, draft, aiHints) {
       created_at: now
     }) : Promise.resolve()
   ]);
+}
+
+async function ensureAiSubtasksForItem(userId, item) {
+  if (!item?.schedule_item_id || typeof store.replaceSubtasksForScheduleItem !== 'function') return [];
+  const existingSubtasks = typeof store.listSubtasksForScheduleItem === 'function'
+    ? await store.listSubtasksForScheduleItem(item.schedule_item_id)
+    : item.subtasks || [];
+  if (existingSubtasks.some((subtask) => Boolean(subtask.generated_by_ai))) {
+    return existingSubtasks;
+  }
+
+  const task = item.task || (item.task_id ? await store.getTask(item.task_id) : null);
+  const input = {
+    user_id: userId,
+    task_id: item.task_id,
+    schedule_item_id: item.schedule_item_id,
+    title: task?.title || item.title,
+    description: task?.description || item.reason || '',
+    category: task?.category || item.category,
+    difficulty_level: task?.difficulty_level || item.difficulty_level,
+    estimated_duration_minutes: task?.estimated_duration_minutes || getDurationMinutes(item.start_time, item.end_time)
+  };
+  const generated = await generateSubtasksWithAi(input);
+  const subtasks = normalizeGeneratedSubtasks(generated.subtasks).map((subtask, index) => ({
+    subtask_id: createId('subtask'),
+    user_id: userId,
+    task_id: item.task_id,
+    schedule_item_id: item.schedule_item_id,
+    title: subtask.title,
+    is_completed: false,
+    order_index: subtask.order_index || index + 1,
+    sort_order: subtask.order_index || index + 1,
+    generated_by_ai: true,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString()
+  }));
+
+  if (subtasks.length === 0) return existingSubtasks;
+  const savedSubtasks = await store.replaceSubtasksForScheduleItem(item.schedule_item_id, subtasks);
+  await insertIfSupported('insertAiPrediction', {
+    prediction_id: createId('pred'),
+    user_id: userId,
+    related_task_id: item.task_id,
+    related_schedule_id: item.schedule_id,
+    module_name: 'subtask_generation',
+    model_name: generated.model || null,
+    source: generated.source || 'python_ai_service',
+    confidence: generated.confidence ?? null,
+    input_json: input,
+    output_json: generated,
+    created_at: new Date().toISOString()
+  });
+  return savedSubtasks;
+}
+
+function normalizeGeneratedSubtasks(subtasks) {
+  if (!Array.isArray(subtasks)) return [];
+  return subtasks
+    .map((subtask, index) => ({
+      title: String(subtask?.title || '').trim(),
+      order_index: parseInteger(subtask?.order_index, index + 1)
+    }))
+    .filter((subtask) => subtask.title)
+    .slice(0, 6);
 }
 
 async function saveDailyEvaluationForDate(userId, date) {

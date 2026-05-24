@@ -4,8 +4,10 @@ import os
 
 from flask import Flask, jsonify, request
 
+from smart_planner_ai.advice import generate_advice
 from smart_planner_ai.mood import analyze_mood
 from smart_planner_ai.scheduler_hints import generate_schedule_hints
+from smart_planner_ai.subtasks import generate_subtasks
 from smart_planner_ai.task_classifier import classify_task
 from smart_planner_ai.time_estimator import estimate_time
 
@@ -25,6 +27,8 @@ def create_app() -> Flask:
                     "task_classification",
                     "time_estimation",
                     "scheduler_hints",
+                    "subtask_generation",
+                    "advice_generation",
                 ],
                 "model_mode": os.getenv("AI_MODEL_MODE", "rule_based"),
             }
@@ -45,6 +49,14 @@ def create_app() -> Flask:
     @app.post("/ai/generate-schedule")
     def schedule_hints():
         return jsonify(generate_schedule_hints(read_json()))
+
+    @app.post("/ai/generate-subtasks")
+    def subtasks():
+        return jsonify(generate_subtasks(read_json()))
+
+    @app.post("/ai/generate-advice")
+    def advice():
+        return jsonify(generate_advice(read_json()))
 
     @app.errorhandler(ValueError)
     def handle_value_error(error):

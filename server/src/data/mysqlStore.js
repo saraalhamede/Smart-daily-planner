@@ -142,7 +142,9 @@ async function listSubtasksForScheduleItems(scheduleItemIds) {
   if (scheduleItemIds.length === 0) return [];
   const { clause, params } = buildInClause(scheduleItemIds, 'itemId');
   return many(
-    `SELECT * FROM task_subtasks WHERE schedule_item_id IN (${clause}) ORDER BY sort_order ASC, created_at ASC`,
+    `SELECT * FROM task_subtasks
+     WHERE schedule_item_id IN (${clause})
+     ORDER BY COALESCE(NULLIF(order_index, 0), sort_order) ASC, created_at ASC`,
     params
   );
 }
@@ -382,7 +384,6 @@ export const mysqlStore = {
       await insert('schedules', dbSchedule, connection);
       for (const item of items) {
         await insert('schedule_items', item, connection);
-        await insertDefaultSubtasks(connection, dbSchedule.user_id, item);
       }
       await connection.commit();
       return { schedule: withLegacySchedule(dbSchedule), items: await this.listScheduleItems(dbSchedule.schedule_id) };
@@ -460,6 +461,33 @@ export const mysqlStore = {
     return one('SELECT * FROM task_subtasks WHERE subtask_id = :subtaskId', { subtaskId });
   },
 
+  listSubtasksForScheduleItem(scheduleItemId) {
+    return many(
+      `SELECT * FROM task_subtasks
+       WHERE schedule_item_id = :scheduleItemId
+       ORDER BY COALESCE(NULLIF(order_index, 0), sort_order) ASC, created_at ASC`,
+      { scheduleItemId }
+    );
+  },
+
+  async replaceSubtasksForScheduleItem(scheduleItemId, subtasks) {
+    const connection = await pool.getConnection();
+    try {
+      await connection.beginTransaction();
+      await connection.execute('DELETE FROM task_subtasks WHERE schedule_item_id = :scheduleItemId', { scheduleItemId });
+      for (const subtask of subtasks) {
+        await insert('task_subtasks', subtask, connection);
+      }
+      await connection.commit();
+      return this.listSubtasksForScheduleItem(scheduleItemId);
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
+  },
+
   async updateSubtask(subtaskId, updates) {
     await update('task_subtasks', 'subtask_id', subtaskId, updates);
     return this.getSubtask(subtaskId);
@@ -475,23 +503,3 @@ export const mysqlStore = {
     return resource;
   }
 };
-
-async function insertDefaultSubtasks(connection, userId, item) {
-  const titles = [
-    `Plan the main steps for "${item.title}"`,
-    'Work on the main part',
-    'Review and fix issues'
-  ];
-
-  for (const [index, title] of titles.entries()) {
-    await insert('task_subtasks', {
-      subtask_id: `sub_${item.schedule_item_id}_${index + 1}`,
-      user_id: userId,
-      task_id: item.task_id,
-      schedule_item_id: item.schedule_item_id,
-      title,
-      is_completed: false,
-      sort_order: index + 1
-    }, connection);
-  }
-}
