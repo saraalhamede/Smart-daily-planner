@@ -521,7 +521,360 @@ git switch -c first-version
 
 هذا الـ README يلخص كل ما فهمناه وثبتناه اليوم، ويمكن استخدامه كمرجع أثناء دراسة المشروع أو عند شرحه لاحقًا.
 
+## Current Database Integration Status - 2026-05-24
+
+This section documents the current end-to-end database work for the Smart Day Planner.
+
+### Current Architecture
+
+```text
+React Frontend
+-> Node.js / Express API
+-> MySQL Database
+```
+
+Future AI path:
+
+```text
+Node.js / Express API
+-> Python AI Service
+```
+
+For now, AI notes and smart recommendations are generated with rule-based logic or placeholders inside the Node.js backend. The Python AI service is planned for a later phase.
+
+### MySQL Database
+
+The main database is:
+
+```text
+smart_day_planner
+```
+
+The schema file is:
+
+```text
+database/schema.sql
+```
+
+The seed file is:
+
+```text
+database/seed.sql
+```
+
+Current tables:
+
+- users
+- user_preferences
+- daily_checkins
+- tasks
+- schedules
+- schedule_items
+- task_feedback
+- task_subtasks
+- task_resources
+- ai_notes
+- daily_evaluations
+
+The database schema now supports:
+
+- user registration and login
+- default user preferences
+- daily check-ins
+- flexible and fixed-time tasks
+- generated schedules
+- schedule items
+- task movement between waiting, in progress, completed, and removed
+- subtasks
+- task resources
+- task feedback
+- AI notes
+- daily evaluations
+- weekly dashboard data
+- monthly calendar data
+- progress and feedback loop data
+
+### Environment Variables
+
+The backend reads MySQL settings from `.env`.
+
+Required variables:
+
+```bash
+PORT=3000
+CLIENT_ORIGIN=http://127.0.0.1:5173
+DATA_STORE=mysql
+DB_HOST=127.0.0.1
+DB_PORT=3306
+DB_USER=root
+DB_PASSWORD=your_mysql_password
+DB_NAME=smart_day_planner
+```
+
+Important: keep the real MySQL password in `.env`; do not write the real password into committed files.
+
+### Demo Account
+
+Seeded demo account:
+
+```text
+Email: sara@smart-planner.local
+Password: demo123
+```
+
+This account is created by `database/schema.sql` if the database is empty, and `database/seed.sql` adds richer demo data only when the database has no tasks.
+
+### Project Commands
+
+Install dependencies:
+
+```bash
+npm install
+```
+
+Run database migration:
+
+```bash
+npm run db:migrate
+```
+
+Run demo seed:
+
+```bash
+npm run db:seed
+```
+
+Run backend server:
+
+```bash
+npm run server
+```
+
+Run React frontend:
+
+```bash
+npm run dev
+```
+
+Build frontend:
+
+```bash
+npm run build:client
+```
+
+Backend syntax check:
+
+```bash
+npm run check
+```
+
+### Backend API Routes
+
+Health:
+
+- `GET /api/health`
+
+Auth:
+
+- `POST /api/auth/register`
+- `POST /api/auth/login`
+
+Weekly Dashboard:
+
+- `GET /api/dashboard/week?userId=&date=`
+
+Calendar:
+
+- `GET /api/calendar/month?userId=&month=&year=`
+
+Selected Day Input:
+
+- `GET /api/day/:date?userId=`
+- `GET /api/checkins?userId=`
+- `POST /api/checkins`
+- `POST /api/tasks`
+- `PUT /api/tasks/:taskId`
+- `DELETE /api/tasks/:taskId`
+
+Schedule:
+
+- `POST /api/schedules/generate`
+- `GET /api/schedules/:date?userId=`
+
+Daily Details:
+
+- `GET /api/day/:date/details?userId=`
+- `PATCH /api/schedule-items/:scheduleItemId/status`
+- `POST /api/feedback`
+- `GET /api/feedback?userId=`
+- `POST /api/resources`
+- `DELETE /api/resources/:resourceId`
+- `PATCH /api/subtasks/:subtaskId`
+
+AI Notes:
+
+- `GET /api/ai-notes?userId=&period=`
+
+Progress:
+
+- `GET /api/progress?userId=&period=`
+
+Settings:
+
+- `GET /api/settings/:userId`
+- `PUT /api/settings/:userId`
+
+Older compatibility routes still exist for some data:
+
+- `GET /api/bootstrap?userId=`
+- `GET /api/daily-checkins?userId=`
+- `POST /api/daily-checkins`
+- `GET /api/preferences/:userId`
+- `PUT /api/preferences/:userId`
+
+### Frontend Database Connection Work
+
+The frontend API wrapper is:
+
+```text
+client/src/api/plannerApi.js
+```
+
+The React app now calls backend APIs instead of relying only on local/mock planner data for:
+
+- login
+- register
+- settings save/load
+- daily check-in save/load
+- selected day load
+- add task
+- update task
+- remove task
+- generate schedule
+- daily details load
+- start task
+- complete task
+- restore task
+- remove waiting task
+- submit feedback
+- update subtasks
+- add/delete resources
+- weekly dashboard load
+- calendar month load
+- AI notes load
+- progress page load
+
+Local storage is still used only for lightweight UI/session state:
+
+- current registered browser user session
+- notification read/removed state
+
+Planner data itself is saved through the backend and MySQL.
+
+### Important Rules Implemented
+
+- Only one task can be `in_progress` per user/day.
+- Past days are review-only.
+- Fixed-time tasks can move automatically based on time.
+- Flexible tasks can be manually started.
+- Removed tasks are marked as removed instead of losing history.
+- Feedback is saved and kept as history.
+- Subtasks and resources are connected to schedule items.
+- Daily evaluations are saved after schedule generation and feedback changes.
+- Multi-day deadline tasks are stored once and displayed dynamically until completed.
+- Generate Schedule requires a saved daily check-in and at least one available task.
+
+### Files Added In This Database Phase
+
+- `database/seed.sql`
+- `server/src/scripts/runSqlFile.js`
+
+### Main Files Updated In This Database Phase
+
+- `database/schema.sql`
+- `server/src/app.js`
+- `server/src/index.js`
+- `server/src/data/store.js`
+- `server/src/data/mysqlStore.js`
+- `server/src/logic/scheduler.js`
+- `server/src/routes/api.js`
+- `server/src/services/plannerService.js`
+- `client/src/api/plannerApi.js`
+- `client/src/App.jsx`
+- `client/src/components/DailyCheckIn.jsx`
+- `package.json`
+
+### Verification Completed
+
+The following checks passed:
+
+- `npm run db:migrate`
+- `npm run db:seed`
+- `npm run check`
+- `node --check server/src/routes/api.js`
+- `node --check server/src/services/plannerService.js`
+- `node --check server/src/scripts/runSqlFile.js`
+- `npm run build:client`
+- `GET /api/health`
+- CORS preflight from `http://127.0.0.1:5173` to the backend
+
+End-to-end API test passed for:
+
+- health check
+- register
+- login
+- settings save/load
+- check-in save/load
+- task add/load
+- task update
+- schedule generate/load
+- daily details load
+- schedule item status update
+- subtask update
+- resource add/delete
+- feedback save/load
+- weekly dashboard
+- calendar month
+- AI notes
+- progress
+- task remove
+
+The temporary API test user was deleted after verification.
+
+Frontend server verified:
+
+```text
+http://127.0.0.1:5173
+```
+
+Backend server verified:
+
+```text
+http://127.0.0.1:3000
+```
+
+### Remaining Notes
+
+- A real click-through browser test was not completed because the in-app browser tool was unavailable in the session.
+- The API, MySQL connection, CORS, migration, seed, and React production build were verified.
+- Python AI service integration is intentionally left for a later phase.
+
 ## Development Change Log
+
+### 2026-05-24
+- Created and verified the MySQL schema for the main planner tables.
+- Added a reusable SQL runner script for migration and seeding.
+- Added demo seed data for the demo account, daily check-ins, tasks, schedule items, feedback, resources, AI notes, and evaluations.
+- Added package scripts for `npm run server`, `npm run dev`, `npm run db:migrate`, and `npm run db:seed`.
+- Added backend page-level routes for weekly dashboard, calendar, selected day, daily details, AI notes, progress, and settings.
+- Added the `/api/health` endpoint to confirm server and database connection.
+- Updated the frontend API wrapper to call the new backend routes.
+- Connected Weekly Dashboard, Calendar, Selected Day Input, Daily Details, AI Notes, Progress, and Settings to backend data.
+- Updated Daily Check-In so saved check-in data can reload from the database into the form.
+- Added clear frontend console errors and backend error responses for API failures.
+- Verified CORS from the React frontend to the Express API.
+- Verified an end-to-end API flow from registration through feedback and progress using a temporary test user.
+- Confirmed the React production build succeeds after the database wiring work.
 
 ### 2026-05-20
 - Added the project name `Smart Day Planner` at the beginning of the header.
