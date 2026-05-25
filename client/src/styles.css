@@ -3473,6 +3473,11 @@ input:disabled {
     #fff3f6;
 }
 
+.detail-task-card.break-card {
+  border-style: dashed;
+  background: rgba(244, 247, 252, 0.88);
+}
+
 .deadline-reminder {
   display: flex;
   flex-wrap: wrap;
@@ -4456,6 +4461,16 @@ input:disabled {
 .timeline-row.completed {
   border-color: rgba(44, 168, 107, 0.34);
   opacity: 0.82;
+}
+
+.timeline-row.break {
+  border-style: dashed;
+  background: rgba(244, 247, 252, 0.88);
+}
+
+.timeline-row.break em {
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.78);
 }
 
 .timeline-row.overdue {

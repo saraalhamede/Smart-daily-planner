@@ -16,8 +16,8 @@ def generate_advice(payload: dict) -> dict:
         advice = [
             make_note(
                 "recommendation",
-                "More data needed",
-                "Add daily check-ins, task progress, and feedback so the planner can generate stronger personalized advice.",
+                "No enough data yet",
+                "Add a daily check-in, tasks, and feedback so the planner can generate stronger personalized advice.",
                 3,
                 scope,
                 related_date,
@@ -28,7 +28,7 @@ def generate_advice(payload: dict) -> dict:
         "module": "advice_generation",
         "source": "python_ai_service",
         "model": "rule_based_personalized_advice",
-        "advice": advice[:6],
+        "advice": advice[:10],
         "confidence": 0.78 if len(advice) > 1 else 0.58,
     }
 
@@ -44,12 +44,27 @@ def build_daily_advice(payload: dict, related_date: str) -> list[dict]:
         payload.get("unfinished_tasks_count"),
         len(as_list(payload.get("waiting_tasks"))) + len(as_list(payload.get("unfinished_tasks"))),
     )
-    productivity_score = int_value(payload.get("productivity_score"), None)
+    productivity_score = int_value(payload.get("productivity_score") or payload.get("completion_percentage"), None)
     deadline_tasks = as_list(payload.get("deadline_tasks"))
     current_task = payload.get("current_task_status") if isinstance(payload.get("current_task_status"), dict) else {}
     feedback_summary = payload.get("feedback_summary") if isinstance(payload.get("feedback_summary"), dict) else {}
+    breaks_count = int_value(payload.get("breaks_count"), 0)
+    has_checkin = has_checkin_data(checkin)
+    has_task_data = completed + unfinished > 0 or bool(current_task) or bool(deadline_tasks)
 
     notes = []
+    if not has_checkin and not has_task_data:
+        return [
+            make_note(
+                "recommendation",
+                "No enough data yet",
+                "Add a daily check-in and tasks so the planner can generate personalized advice for this day.",
+                3,
+                "daily",
+                related_date,
+            )
+        ]
+
     if energy <= 2 or sleep_hours < 5.5:
         sleep_text = f" after {sleep_hours:g} hours of sleep" if sleep_hours < 5.5 else ""
         notes.append(make_note(
@@ -57,6 +72,16 @@ def build_daily_advice(payload: dict, related_date: str) -> list[dict]:
             "Low energy plan",
             f"Your energy is low today{sleep_text}. Start with easier tasks, use shorter focus blocks, and add a short break before difficult work.",
             1,
+            "daily",
+            related_date,
+        ))
+
+    if energy >= 4 and sleep_hours >= 7 and stress <= 2 and mood >= 4:
+        notes.append(make_note(
+            "energy",
+            "Strong energy window",
+            "Your energy is strong today. This is a good time for difficult or high-priority tasks.",
+            2,
             "daily",
             related_date,
         ))
@@ -91,7 +116,16 @@ def build_daily_advice(payload: dict, related_date: str) -> list[dict]:
             related_date,
         ))
 
-    if productivity_score is not None and productivity_score >= 80:
+    if productivity_score == 100 and completed > 0 and unfinished == 0:
+        notes.append(make_note(
+            "productivity",
+            "Excellent progress today",
+            "Excellent progress today. You completed all planned tasks.",
+            1,
+            "daily",
+            related_date,
+        ))
+    elif productivity_score is not None and productivity_score >= 80:
         notes.append(make_note(
             "productivity",
             "Good progress today",
@@ -138,6 +172,19 @@ def build_daily_advice(payload: dict, related_date: str) -> list[dict]:
             feedback_summary.get("latest_overrun_task_id"),
         ))
 
+    if int_value(feedback_summary.get("difficult_count"), 0) > 0:
+        task_title = text(feedback_summary.get("latest_difficult_task"))
+        subject = f"'{task_title}'" if task_title else "The last task"
+        notes.append(make_note(
+            "feedback",
+            "Add recovery after difficult work",
+            f"{subject} felt difficult. Consider adding a short break before the next hard task.",
+            2,
+            "task" if feedback_summary.get("latest_difficult_task_id") else "daily",
+            related_date,
+            feedback_summary.get("latest_difficult_task_id"),
+        ))
+
     if current_task:
         current_title = text(current_task.get("title")) or "your current task"
         current_progress = int_value(current_task.get("progress_percentage"), None)
@@ -151,9 +198,43 @@ def build_daily_advice(payload: dict, related_date: str) -> list[dict]:
                 related_date,
                 current_task.get("task_id"),
             ))
+        elif current_progress is None:
+            notes.append(make_note(
+                "task",
+                "Active task focus",
+                f"{current_title} is currently in progress. Keep the next step small and update feedback when you finish.",
+                3,
+                "task",
+                related_date,
+                current_task.get("task_id"),
+            ))
 
-    if not notes and completed + unfinished > 0:
-        notes.append(make_note(
+    if not has_task_data:
+        add_unique_note(notes, make_note(
+            "recommendation",
+            "No enough data yet",
+            "Your check-in is saved. Add tasks or generate a schedule so advice can connect to today's actual plan.",
+            3,
+            "daily",
+            related_date,
+        ))
+    else:
+        fill_daily_baseline_notes(
+            notes,
+            related_date,
+            energy,
+            stress,
+            mood,
+            sleep_hours,
+            completed,
+            unfinished,
+            productivity_score,
+            current_task,
+            breaks_count,
+        )
+
+    if not notes:
+        add_unique_note(notes, make_note(
             "recommendation",
             "Balanced day",
             "Your current day looks balanced. Keep checking off subtasks and use feedback if any task feels harder than planned.",
@@ -161,7 +242,121 @@ def build_daily_advice(payload: dict, related_date: str) -> list[dict]:
             "daily",
             related_date,
         ))
-    return notes
+
+    complex_day = (
+        energy <= 2 or
+        stress >= 4 or
+        unfinished >= 4 or
+        bool(urgent_deadline) or
+        int_value(feedback_summary.get("overrun_count"), 0) > 0 or
+        int_value(feedback_summary.get("difficult_count"), 0) > 0
+    )
+    return notes[:12 if complex_day else 6]
+
+
+def fill_daily_baseline_notes(
+    notes: list[dict],
+    related_date: str,
+    energy: int,
+    stress: int,
+    mood: int,
+    sleep_hours: float,
+    completed: int,
+    unfinished: int,
+    productivity_score: int | None,
+    current_task: dict,
+    breaks_count: int,
+) -> None:
+    if completed > 0:
+        add_unique_note(notes, make_note(
+            "productivity",
+            "Completed task momentum",
+            f"You completed {completed} task{'s' if completed != 1 else ''} today. Use what worked in those blocks when planning the next task.",
+            3,
+            "daily",
+            related_date,
+        ))
+
+    if unfinished > 0:
+        add_unique_note(notes, make_note(
+            "schedule",
+            "Next task choice",
+            f"{unfinished} task{'s are' if unfinished != 1 else ' is'} still waiting. Choose the highest-priority item before adding new work.",
+            3,
+            "daily",
+            related_date,
+        ))
+
+    if productivity_score is not None and 0 < productivity_score < 100:
+        add_unique_note(notes, make_note(
+            "productivity",
+            "Progress snapshot",
+            f"Your current completion is {productivity_score}%. Keep the next session focused on one clear task.",
+            3,
+            "daily",
+            related_date,
+        ))
+
+    if sleep_hours >= 7 and energy >= 3:
+        add_unique_note(notes, make_note(
+            "energy",
+            "Rest supports focus",
+            "Your sleep looks supportive today. Protect the time block where you feel most alert.",
+            3,
+            "daily",
+            related_date,
+        ))
+
+    if stress <= 2:
+        add_unique_note(notes, make_note(
+            "stress",
+            "Manageable stress",
+            "Stress looks manageable today. This is a good setup for steady focused work.",
+            3,
+            "daily",
+            related_date,
+        ))
+
+    if mood >= 4:
+        add_unique_note(notes, make_note(
+            "mood",
+            "Positive mood momentum",
+            "Your mood check-in is positive. Use that momentum on work that needs attention and patience.",
+            3,
+            "daily",
+            related_date,
+        ))
+
+    if breaks_count > 0:
+        add_unique_note(notes, make_note(
+            "schedule",
+            "Protect break time",
+            f"Your schedule includes {breaks_count} break{'s' if breaks_count != 1 else ''}. Keep that time for recovery instead of treating it like another task.",
+            3,
+            "daily",
+            related_date,
+        ))
+
+    if len(notes) < 5:
+        active_text = "1 in progress" if current_task else "none in progress"
+        add_unique_note(notes, make_note(
+            "schedule",
+            "Plan snapshot",
+            f"Today has {completed} completed, {unfinished} waiting, and {active_text}. Keep the next step small and visible.",
+            3,
+            "daily",
+            related_date,
+        ))
+
+    if len(notes) < 5:
+        add_unique_note(notes, make_note(
+            "recommendation",
+            "Keep the plan realistic",
+            "Match difficult work with your best energy and move non-urgent tasks if the day gets crowded.",
+            4,
+            "daily",
+            related_date,
+        ))
 
 
 def build_period_advice(payload: dict, scope: str, related_date: str) -> list[dict]:
@@ -287,6 +482,16 @@ def count_status(items: Any, status: str) -> int:
 
 def as_list(value: Any) -> list:
     return value if isinstance(value, list) else []
+
+
+def has_checkin_data(checkin: dict) -> bool:
+    return any(checkin.get(key) is not None for key in ("mood_level", "energy_level", "predicted_energy_level", "stress_level", "sleep_hours"))
+
+
+def add_unique_note(notes: list[dict], note: dict) -> None:
+    key = (note.get("scope"), note.get("advice_type"), note.get("title"), note.get("message"))
+    if not any((item.get("scope"), item.get("advice_type"), item.get("title"), item.get("message")) == key for item in notes):
+        notes.append(note)
 
 
 def int_value(value: Any, fallback: int | None = 0) -> int | None:

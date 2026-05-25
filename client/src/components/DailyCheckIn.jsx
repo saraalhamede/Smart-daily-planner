@@ -110,10 +110,17 @@ function dailyLogToForm(log) {
     energy_level: log.energy_level || initialState.energy_level,
     stress_level: log.stress_level || initialState.stress_level,
     sleep_hours: log.sleep_hours || initialState.sleep_hours,
-    is_tired: Boolean(log.is_tired),
+    is_tired: parseBoolean(log.is_tired),
     planning_start: formatTime(log.planning_start),
     planning_end: formatTime(log.planning_end)
   };
+}
+
+function parseBoolean(value) {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') return value === 1;
+  if (typeof value === 'string') return ['true', '1', 'yes', 'on'].includes(value.trim().toLowerCase());
+  return false;
 }
 
 function formatTime(value) {

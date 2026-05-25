@@ -2200,7 +2200,7 @@ function DailyDetailsPage({
     ? details.completedTasks.find((item) => getDetailItemId(item) === selectedCompletedItemId)
     : null;
   const dailyEvaluation = buildDailyEvaluation(details, activeTaskUi, latestLog);
-  const adviceNotes = buildDailyAdviceNotes(details.advice, mergeById(aiNotes, dailyAiNotes, 'note_id'), dayKey);
+  const adviceNotes = buildDailyAdviceNotes(details.advice, mergeById(aiNotes, dailyAiNotes, 'note_id'), dayKey, latestLog);
 
   useEffect(() => {
     const nextItems = initializeDailyDetailItems({ day, schedule, items, tasks });
@@ -2265,6 +2265,11 @@ function DailyDetailsPage({
       return;
     }
 
+    if (isBreakScheduleItem(item)) {
+      setNotice('Breaks are shown in the timeline only and cannot be started like tasks.');
+      return;
+    }
+
     if (item.task_kind === 'fixed') {
       setNotice('Fixed-time tasks start automatically at their scheduled time.');
       return;
@@ -2275,7 +2280,7 @@ function DailyDetailsPage({
       return;
     }
 
-    const activeTask = detailItems.find((detailItem) => detailItem.status === 'in_progress');
+    const activeTask = detailItems.find((detailItem) => detailItem.status === 'in_progress' && !isBreakScheduleItem(detailItem));
     if (activeTask && getDetailItemId(activeTask) !== getDetailItemId(item)) {
       setNotice('Finish or return the current task before starting another one.');
       return;
@@ -2299,6 +2304,11 @@ function DailyDetailsPage({
   async function finishTask(item) {
     if (isReviewMode) {
       setNotice('Review Mode is read-only. This task cannot be finished from a past day.');
+      return;
+    }
+
+    if (isBreakScheduleItem(item)) {
+      setNotice('Breaks cannot be completed like tasks.');
       return;
     }
 
@@ -2363,6 +2373,11 @@ function DailyDetailsPage({
   async function returnToWaiting(item) {
     if (isReviewMode) {
       setNotice('Review Mode is read-only. This task cannot be returned from a past day.');
+      return;
+    }
+
+    if (isBreakScheduleItem(item)) {
+      setNotice('Breaks stay on the timeline and cannot be moved to Waiting Tasks.');
       return;
     }
 
@@ -2534,6 +2549,11 @@ function DailyDetailsPage({
       return;
     }
 
+    if (isBreakScheduleItem(item)) {
+      setNotice('Feedback is saved for tasks, not breaks.');
+      return;
+    }
+
     updateActiveTaskUi(item, { feedbackOpen: true });
   }
 
@@ -2554,6 +2574,11 @@ function DailyDetailsPage({
   async function submitProgressFeedback(item) {
     if (isReviewMode) {
       setNotice('Review Mode is read-only. New feedback cannot be submitted for a past day.');
+      return;
+    }
+
+    if (isBreakScheduleItem(item)) {
+      setNotice('Feedback is saved for tasks, not breaks.');
       return;
     }
 
@@ -2600,6 +2625,11 @@ function DailyDetailsPage({
   function beginEdit(item) {
     if (isReviewMode) {
       setNotice('Review Mode is read-only. Past-day tasks cannot be edited.');
+      return;
+    }
+
+    if (isBreakScheduleItem(item)) {
+      setNotice('Breaks cannot be edited like tasks.');
       return;
     }
 
@@ -2664,11 +2694,17 @@ function DailyDetailsPage({
       return;
     }
 
+    if (isBreakScheduleItem(item)) {
+      setNotice('Breaks cannot be restored like completed tasks.');
+      setRestoreMenuItemId(null);
+      return;
+    }
+
     const itemId = getDetailItemId(item);
     const restoreTime = new Date().toISOString();
 
     if (targetStatus === 'in_progress') {
-      const activeTask = detailItems.find((detailItem) => detailItem.status === 'in_progress');
+      const activeTask = detailItems.find((detailItem) => detailItem.status === 'in_progress' && !isBreakScheduleItem(detailItem));
       if (activeTask && getDetailItemId(activeTask) !== itemId) {
         setNotice('Finish or return the current task before restoring another task to In Progress.');
         setRestoreMenuItemId(null);
@@ -2718,6 +2754,11 @@ function DailyDetailsPage({
   function requestRemoveWaitingTask(item) {
     if (isReviewMode) {
       setNotice('Review Mode is read-only. Waiting tasks cannot be removed from a past day.');
+      return;
+    }
+
+    if (isBreakScheduleItem(item)) {
+      setNotice('Breaks are timeline items and cannot be removed like tasks.');
       return;
     }
 
@@ -2884,13 +2925,13 @@ function DailyDetailsPage({
           ) : (
             <div className="timeline-list">
               {details.timeline.map((item) => (
-                <article className={`timeline-row ${item.status}`} key={getDetailItemId(item)}>
+                <article className={`timeline-row ${isBreakScheduleItem(item) ? 'break' : item.status}`} key={getDetailItemId(item)}>
                   <time>{item.is_deadline_continuation ? 'Flexible' : formatTimeRange(item.start_time, item.end_time)}</time>
                   <div>
-                    <strong>{item.title}</strong>
-                    <span>{item.reason || 'Planned schedule block'}</span>
+                    <strong>{isBreakScheduleItem(item) ? 'Break' : item.title}</strong>
+                    <span>{isBreakScheduleItem(item) ? item.reason || 'Short recovery break' : item.reason || 'Planned schedule block'}</span>
                     {item.deadline_label ? <small>{item.deadline_label} - {item.deadline_detail}</small> : null}
-                    <em>{formatTaskStatus(item.status)}</em>
+                    <em>{isBreakScheduleItem(item) ? 'Break' : formatTaskStatus(item.status)}</em>
                   </div>
                 </article>
               ))}
@@ -3511,13 +3552,14 @@ function DailyDetailTaskCard({
   onRemove,
   isReviewMode = false
 }) {
+  const isBreak = isBreakScheduleItem(item);
   const isFixed = item.task_kind === 'fixed';
   const deadlineTone = item.deadline_tone ? `deadline-${item.deadline_tone}` : '';
   const statusTone = item.status === 'overdue' ? 'overdue' : '';
 
   return (
-    <article className={`detail-task-card ${completed ? 'completed' : ''} ${deadlineTone} ${statusTone}`}>
-      {isEditing ? (
+    <article className={`detail-task-card ${completed ? 'completed' : ''} ${deadlineTone} ${statusTone} ${isBreak ? 'break-card' : ''}`}>
+      {isEditing && !isBreak ? (
         <DailyTaskEditForm
           draft={editDraft}
           onChange={onEditDraftChange}
@@ -3527,14 +3569,23 @@ function DailyDetailTaskCard({
       ) : (
         <>
           <div>
-            <strong>{item.title}</strong>
-            <span>{item.is_deadline_continuation ? 'Flexible deadline task' : formatTimeRange(item.start_time, item.end_time)}</span>
+            <strong>{isBreak ? 'Break' : item.title}</strong>
+            <span>{isBreak ? 'Short recovery break' : item.is_deadline_continuation ? 'Flexible deadline task' : formatTimeRange(item.start_time, item.end_time)}</span>
           </div>
           <div className="chip-line">
-            <span>{isFixed ? 'fixed-time' : 'flexible'}</span>
-            <span>Difficulty {item.difficulty_level || item.task?.difficulty_level || 3}</span>
-            <span>Priority {item.task?.priority_level || item.priority_level || 3}</span>
-            <span>{formatTaskStatus(item.status)}</span>
+            {isBreak ? (
+              <>
+                <span>break</span>
+                <span>Timeline only</span>
+              </>
+            ) : (
+              <>
+                <span>{isFixed ? 'fixed-time' : 'flexible'}</span>
+                <span>Difficulty {item.difficulty_level || item.task?.difficulty_level || 3}</span>
+                <span>Priority {item.task?.priority_level || item.priority_level || 3}</span>
+                <span>{formatTaskStatus(item.status)}</span>
+              </>
+            )}
           </div>
           {item.deadline_label ? (
             <div className={`deadline-reminder ${item.deadline_tone || ''}`}>
@@ -3547,13 +3598,13 @@ function DailyDetailTaskCard({
               <i style={{ width: `${item.progress || 45}%` }}></i>
             </div>
           ) : null}
-          {mode === 'waiting' && isReviewMode ? (
+          {mode === 'waiting' && isReviewMode && !isBreak ? (
             <span className="restore-readonly inline-readonly">
               <Lock size={13} />
               Read-only history
             </span>
           ) : null}
-          {mode === 'waiting' && !isReviewMode ? (
+          {mode === 'waiting' && !isReviewMode && !isBreak ? (
             <div className="detail-task-actions">
               <button type="button" onClick={() => onEdit?.(item)}>
                 <Pencil size={15} />
@@ -3569,7 +3620,7 @@ function DailyDetailTaskCard({
               </button>
             </div>
           ) : null}
-          {mode === 'progress' && !isReviewMode ? (
+          {mode === 'progress' && !isReviewMode && !isBreak ? (
             <div className="detail-task-actions">
               <button type="button" onClick={() => onFinish?.(item)}>
                 <CheckCircle2 size={15} />
@@ -4286,9 +4337,7 @@ function buildWeeklyDashboardData({ tasks = [], scheduleItems = [], latestLog, d
     const dayTasks = tasksByDay.get(day.key) || [];
     const totalTasks = dayTasks.length;
     const completedTasks = dayTasks.filter(isTaskCompleted).length;
-    const rawProgress = evaluationByDay.has(day.key)
-      ? Number.parseInt(evaluationByDay.get(day.key).completion_percentage, 10) || 0
-      : totalTasks ? Math.round((completedTasks / totalTasks) * 100) : 0;
+    const rawProgress = getCompletionPercentage(completedTasks, totalTasks);
     const isFuture = day.key > todayKey;
     const progressTone = getProgressTone(rawProgress, totalTasks, isFuture, isNewUser);
 
@@ -4819,6 +4868,9 @@ function getProgressTone(progress, totalTasks, isFuture, isNewUser) {
   if (isNewUser || totalTasks === 0 || isFuture) {
     return { tone: 'neutral', color: '#d7e2f5', visualProgress: 0 };
   }
+  if (progress <= 0) {
+    return { tone: 'neutral', color: '#d7e2f5', visualProgress: 0 };
+  }
   if (progress === 100) {
     return { tone: 'green', color: '#2ca86b', visualProgress: 100 };
   }
@@ -4829,6 +4881,12 @@ function getProgressTone(progress, totalTasks, isFuture, isNewUser) {
     return { tone: 'orange', color: '#f3ad35', visualProgress: progress };
   }
   return { tone: 'teal', color: '#11a7a4', visualProgress: progress };
+}
+
+function getCompletionPercentage(completedTasks, totalTasks) {
+  if (!totalTasks) return 0;
+  if (completedTasks >= totalTasks) return 100;
+  return Math.round((completedTasks / totalTasks) * 100);
 }
 
 function getDayCircleLabel({ isNewUser, isFuture, totalTasks, rawProgress }) {
@@ -4844,6 +4902,28 @@ function isTaskCompleted(task) {
 
 function isTaskArchived(task) {
   return ['removed', 'deleted', 'cancelled'].includes(String(task?.status || '').toLowerCase());
+}
+
+function isBreakScheduleItem(item = {}) {
+  const kind = String(item.task_kind || '').trim().toLowerCase();
+  const category = String(item.category || item.task?.category || '').trim().toLowerCase();
+  const energySlot = String(item.energy_slot || '').trim().toLowerCase();
+  const title = String(item.title || '').trim().toLowerCase();
+  return (
+    kind === 'break' ||
+    category === 'break' ||
+    energySlot === 'break' ||
+    title === 'break' ||
+    title === 'short break' ||
+    title === 'rest break'
+  );
+}
+
+function parseBooleanValue(value) {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') return value === 1;
+  if (typeof value === 'string') return ['true', '1', 'yes', 'on'].includes(value.trim().toLowerCase());
+  return false;
 }
 
 function toDateKey(date) {
@@ -4990,13 +5070,16 @@ function initializeDailyDetailItems({ day, schedule, items = [], tasks = [] }) {
 
 function splitDailyDetailItems(detailItems, latestLog) {
   const sortedItems = [...detailItems].sort((a, b) => getDetailSortTime(a) - getDetailSortTime(b));
-  const currentTask = sortedItems.find((item) => item.status === 'in_progress') || null;
-  const completedTasks = sortedItems.filter((item) => item.status === 'completed');
-  const waitingTasks = sortedItems.filter((item) => item.status === 'waiting' || item.status === 'overdue');
-  const advice = buildDailyAdvice({ waitingTasks, completedTasks, currentTask, latestLog, dayItems: sortedItems });
+  const breakItems = sortedItems.filter(isBreakScheduleItem);
+  const taskItems = sortedItems.filter((item) => !isBreakScheduleItem(item));
+  const currentTask = taskItems.find((item) => item.status === 'in_progress') || null;
+  const completedTasks = taskItems.filter((item) => item.status === 'completed');
+  const waitingTasks = taskItems.filter((item) => item.status === 'waiting' || item.status === 'overdue');
+  const advice = buildDailyAdvice({ waitingTasks, completedTasks, currentTask, latestLog, dayItems: taskItems, breakItems });
 
   return {
     waitingTasks,
+    breakItems,
     currentTask,
     completedTasks,
     timeline: sortedItems,
@@ -5004,11 +5087,46 @@ function splitDailyDetailItems(detailItems, latestLog) {
   };
 }
 
-function buildDailyAdviceNotes(localAdvice = [], aiNotes = [], dayKey) {
+function buildDailyAdviceNotes(localAdvice = [], aiNotes = [], dayKey, latestLog) {
   const savedNotes = aiNotes
     .filter((note) => datePart(note.note_date || note.created_at) === dayKey)
+    .filter((note) => shouldShowSavedAdviceNote(note, latestLog));
+  const selectedSavedNotes = selectLatestDailyAdviceNotes(savedNotes)
     .map((note) => `${note.title}: ${note.message}`);
-  return [...savedNotes, ...localAdvice];
+  if (selectedSavedNotes.length > 0) return selectedSavedNotes;
+  return localAdvice;
+}
+
+function shouldShowSavedAdviceNote(note, latestLog) {
+  if (!latestLog) return true;
+  const energy = Number.parseInt(latestLog.predicted_energy_level || latestLog.energy_level, 10);
+  const stress = Number.parseInt(latestLog.stress_level, 10);
+  const sleepHours = Number.parseFloat(latestLog.sleep_hours);
+  const mood = Number.parseInt(latestLog.mood_level, 10);
+  const isTired = parseBooleanValue(latestLog.is_tired);
+  const strongEnergyDay = energy >= 4 && stress <= 2 && sleepHours >= 7 && mood >= 4 && !isTired;
+  if (!strongEnergyDay) return true;
+  const textValue = `${note.note_type || ''} ${note.title || ''} ${note.message || ''}`.toLowerCase();
+  return !textValue.includes('low energy') && !textValue.includes('low-energy') && !textValue.includes('energy is low');
+}
+
+function selectLatestDailyAdviceNotes(notes = []) {
+  if (notes.length <= 6) return notes;
+  const sorted = [...notes].sort((a, b) => new Date(b.created_at || b.note_date || 0) - new Date(a.created_at || a.note_date || 0));
+  const latestTime = new Date(sorted[0]?.created_at || sorted[0]?.note_date || 0).getTime();
+  const latestBatch = sorted.filter((note) => {
+    const noteTime = new Date(note.created_at || note.note_date || 0).getTime();
+    return Number.isFinite(noteTime) && Number.isFinite(latestTime) && Math.abs(latestTime - noteTime) <= 120000;
+  });
+  const currentNotes = latestBatch.length >= 3 ? latestBatch : sorted.slice(0, 6);
+  const complexDay = currentNotes.some((note) => {
+    const noteType = String(note.note_type || note.advice_type || '').toLowerCase();
+    const priority = Number.parseInt(note.priority, 10);
+    return priority <= 1 || ['deadline', 'stress', 'time_management', 'feedback'].includes(noteType);
+  });
+  return currentNotes
+    .sort((a, b) => (Number.parseInt(a.priority, 10) || 3) - (Number.parseInt(b.priority, 10) || 3))
+    .slice(0, complexDay ? 12 : 6);
 }
 
 function shouldDisplayScheduledDetailItemOnDay(item, task, dayKey) {
@@ -5018,6 +5136,8 @@ function shouldDisplayScheduledDetailItemOnDay(item, task, dayKey) {
 }
 
 function normalizeDailyTaskStatus(item, task, taskKind, now, dayKey) {
+  if (isBreakScheduleItem(item)) return 'break';
+
   if (item.status === 'completed' || task?.is_completed) {
     return getItemCompletionDayKey(item, task) === dayKey ? 'completed' : getWaitingStatusForItem({ ...item, task }, dayKey);
   }
@@ -5238,7 +5358,7 @@ function applyFixedTimeAutomation(items, now) {
 }
 
 function enforceSingleInProgress(items) {
-  const activeItems = items.filter((item) => item.status === 'in_progress');
+  const activeItems = items.filter((item) => item.status === 'in_progress' && !isBreakScheduleItem(item));
   if (activeItems.length <= 1) return items;
 
   const preferredActive = activeItems.find((item) => item.task_kind === 'fixed') || activeItems[0];
@@ -5371,7 +5491,7 @@ function buildCompletedTaskEvaluation(item) {
 }
 
 function buildDailyEvaluation(details, activeTaskUi, latestLog) {
-  const totalTasks = details.timeline.length;
+  const totalTasks = details.timeline.filter((item) => !isBreakScheduleItem(item)).length;
   const completedTasks = details.completedTasks.length;
   const unfinishedTasks = Math.max(0, totalTasks - completedTasks);
   const completionPercentage = totalTasks ? Math.round((completedTasks / totalTasks) * 100) : 0;
@@ -5527,6 +5647,7 @@ function getDetailItemId(item) {
 }
 
 function formatTaskStatus(status) {
+  if (status === 'break') return 'break';
   if (status === 'in_progress') return 'in progress';
   if (status === 'overdue') return 'overdue';
   return status || 'waiting';
@@ -5586,31 +5707,109 @@ function isValidDate(date) {
   return date instanceof Date && !Number.isNaN(date.getTime());
 }
 
-function buildDailyAdvice({ waitingTasks, completedTasks, currentTask, latestLog, dayItems }) {
-  if (dayItems.length === 0) return [];
-
+function buildDailyAdvice({ waitingTasks, completedTasks, currentTask, latestLog, dayItems, breakItems = [] }) {
   const notes = [];
+  const addNote = (message) => {
+    if (message && !notes.includes(message)) notes.push(message);
+  };
   const energy = Number.parseInt(latestLog?.predicted_energy_level || latestLog?.energy_level, 10);
   const stress = Number.parseInt(latestLog?.stress_level, 10);
+  const mood = Number.parseInt(latestLog?.mood_level, 10);
+  const sleepHours = Number.parseFloat(latestLog?.sleep_hours);
+  const hasCheckinData = Boolean(latestLog && (
+    latestLog.mood_level !== undefined ||
+    latestLog.energy_level !== undefined ||
+    latestLog.stress_level !== undefined ||
+    latestLog.sleep_hours !== undefined
+  ));
+  const hasTaskData = dayItems.length > 0 || waitingTasks.length > 0 || completedTasks.length > 0 || Boolean(currentTask);
 
-  if (completedTasks.length > 0 && completedTasks.length >= waitingTasks.length) {
-    notes.push('You are progressing well today. Keep your focus window for difficult tasks.');
+  if (!hasCheckinData && !hasTaskData) {
+    return ['No enough data yet: Add a daily check-in and tasks so the planner can generate personalized advice.'];
+  }
+
+  const completionPercentage = getCompletionPercentage(completedTasks.length, completedTasks.length + waitingTasks.length + (currentTask ? 1 : 0));
+  const overrunCount = completedTasks.filter((item) => getActualDurationMinutes(item) > getPlannedDurationMinutes(item) * 1.25).length;
+  const difficultFeedback = dayItems
+    .flatMap((item) => Array.isArray(item.feedback) ? item.feedback : [])
+    .filter((feedback) => Number.parseInt(feedback.difficulty_feedback, 10) >= 4);
+
+  if (!Number.isNaN(energy) && energy >= 4 && !Number.isNaN(stress) && stress <= 2 && !Number.isNaN(sleepHours) && sleepHours >= 7 && (Number.isNaN(mood) || mood >= 4)) {
+    addNote('Your energy is strong today. This is a good time for difficult tasks.');
   }
 
   if (!Number.isNaN(energy) && energy <= 2) {
-    notes.push('Your energy seems low. Try moving heavy tasks later or use shorter focus blocks.');
+    addNote('Your energy is low. Start with easier tasks and use shorter sessions.');
   }
 
   if (!Number.isNaN(stress) && stress >= 4) {
-    notes.push('Stress is high today. Add short breaks between difficult tasks.');
+    addNote('Stress is high today. Avoid grouping too many hard tasks together.');
+  }
+
+  if (waitingTasks.length >= 3) {
+    addNote('You still have several tasks waiting. Focus on the highest priority task first.');
+  }
+
+  if (completionPercentage === 100 && completedTasks.length > 0) {
+    addNote('Excellent progress today. You completed all planned tasks.');
+  } else if (completedTasks.length > 0 && completedTasks.length >= waitingTasks.length) {
+    addNote('Good progress today. Keep using your strongest energy hours for difficult tasks.');
+  }
+
+  if (overrunCount > 0) {
+    addNote('Some tasks took longer than expected. Similar tasks may need more time next time.');
+  }
+
+  if (difficultFeedback.length > 0) {
+    addNote('The last task felt difficult. Consider adding a break before the next hard task.');
   }
 
   if (!currentTask && waitingTasks.length > 0) {
-    notes.push('Choose the next waiting task when you are ready to continue.');
+    addNote('Choose the next waiting task when you are ready to continue.');
+  } else if (currentTask) {
+    addNote(`${currentTask.title} is in progress. Keep the next step small and update feedback when you finish.`);
+  }
+
+  if (hasTaskData) {
+    if (completedTasks.length > 0) {
+      addNote(`You completed ${completedTasks.length} task${completedTasks.length === 1 ? '' : 's'} today. Use feedback from finished work to improve the next plan.`);
+    }
+    if (waitingTasks.length > 0) {
+      addNote(`${waitingTasks.length} task${waitingTasks.length === 1 ? ' is' : 's are'} still waiting. Pick the highest-priority one before adding new work.`);
+    }
+    if (completionPercentage > 0 && completionPercentage < 100) {
+      addNote(`Your current completion is ${completionPercentage}%. Keep the next session focused on one clear task.`);
+    }
+  } else {
+    addNote('No enough data yet: Add tasks or generate a schedule so advice can connect to today\'s plan.');
+  }
+
+  if (hasCheckinData) {
+    if (!Number.isNaN(sleepHours) && sleepHours >= 7 && (Number.isNaN(energy) || energy >= 3)) {
+      addNote('Your sleep looks supportive today. Protect the time block where you feel most alert.');
+    }
+    if (!Number.isNaN(stress) && stress <= 2) {
+      addNote('Stress looks manageable today. This is a good setup for steady focused work.');
+    }
+    if (!Number.isNaN(mood) && mood >= 4) {
+      addNote('Your mood check-in is positive. Use that momentum on work that needs attention and patience.');
+    }
+  }
+
+  if (breakItems.length > 0) {
+    addNote(`Your schedule includes ${breakItems.length} break${breakItems.length === 1 ? '' : 's'}. Keep them as recovery time instead of treating them like tasks.`);
   }
 
   if (notes.length === 0) {
-    notes.push('No advice yet');
+    addNote('Your current day looks balanced. Keep checking off subtasks and use feedback if anything feels harder than planned.');
+  }
+
+  if (hasTaskData && notes.length < 5) {
+    addNote(`Plan snapshot: ${completedTasks.length} completed, ${waitingTasks.length} waiting, ${currentTask ? '1 in progress' : 'none in progress'}.`);
+  }
+
+  if (hasCheckinData && notes.length < 5) {
+    addNote('Keep today realistic: match difficult work with your best energy and move non-urgent tasks if the day gets crowded.');
   }
 
   return notes;

@@ -23,6 +23,16 @@ def text(value: Any) -> str:
     return str(value or "").strip()
 
 
+def boolean(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value == 1
+    if isinstance(value, str):
+        return value.strip().lower() in {"true", "1", "yes", "on"}
+    return False
+
+
 def detect_language(value: str) -> str:
     if re.search(r"[\u0600-\u06ff]", value):
         return "ar"

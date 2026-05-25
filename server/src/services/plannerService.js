@@ -213,7 +213,10 @@ export async function getDailyDetails(userId, date) {
     tasks,
     daily_checkin: dailyCheckin,
     task_feedback: dayFeedback,
-    ai_notes: latestAiNotes.filter((note) => dateOnly(note.note_date || note.created_at) === date),
+    ai_notes: selectLatestDailyAdviceNotes(filterAdviceNotesForCheckin(
+      latestAiNotes.filter((note) => dateOnly(note.note_date || note.created_at) === date),
+      dailyCheckin
+    )),
     daily_evaluation: dailyEvaluation
   };
 }
@@ -237,7 +240,10 @@ export async function getDayData(userId, date) {
     schedule,
     schedule_items: displayItems,
     items: displayItems,
-    ai_notes: aiNotes.filter((note) => dateOnly(note.note_date || note.created_at) === date),
+    ai_notes: selectLatestDailyAdviceNotes(filterAdviceNotesForCheckin(
+      aiNotes.filter((note) => dateOnly(note.note_date || note.created_at) === date),
+      dailyLogs.find((log) => dateOnly(log.log_date) === date) || null
+    )),
     daily_evaluation: dailyEvaluations.find((evaluation) => dateOnly(evaluation.evaluation_date) === date) || null
   };
 }
@@ -266,11 +272,12 @@ export async function getWeeklyDashboard(userId, date = todayKey()) {
     const dayTasks = tasks.filter((task) => isTaskVisibleOnDate(task, dayKey));
     const completed = dayTasks.filter((task) => Boolean(task.is_completed) || task.status === 'completed').length;
     const evaluation = evaluationByDate.get(dayKey);
+    const completionPercentage = getCompletionPercentage(completed, dayTasks.length);
     return {
       date: dayKey,
       total_tasks: dayTasks.length,
       completed_tasks: completed,
-      completion_percentage: evaluation?.completion_percentage ?? (dayTasks.length ? Math.round((completed / dayTasks.length) * 100) : 0),
+      completion_percentage: completionPercentage,
       productivity_score: evaluation?.productivity_score ?? null,
       stress_level: checkinByDate.get(dayKey)?.stress_level ?? null
     };
@@ -319,11 +326,12 @@ export async function getCalendarMonth(userId, month, year) {
     const completed = dayTasks.filter((task) => Boolean(task.is_completed) || task.status === 'completed').length;
     const evaluation = dailyEvaluations.find((item) => dateOnly(item.evaluation_date) === key);
     const checkin = dailyLogs.find((item) => dateOnly(item.log_date) === key);
+    const completionPercentage = getCompletionPercentage(completed, dayTasks.length);
     days.push({
       date: key,
       task_count: dayTasks.length,
       deadline_count: dayTasks.filter((task) => task.deadline && !task.is_completed).length,
-      completion_percentage: evaluation?.completion_percentage ?? (dayTasks.length ? Math.round((completed / dayTasks.length) * 100) : 0),
+      completion_percentage: completionPercentage,
       productivity_score: evaluation?.productivity_score ?? null,
       mood_level: checkin?.mood_level ?? null,
       stress_level: checkin?.stress_level ?? null
@@ -542,7 +550,7 @@ export async function createDailyLog(input) {
     energy_level: parseInteger(input.energy_level, 3),
     stress_level: parseInteger(input.stress_level, 3),
     sleep_hours: Number.parseFloat(input.sleep_hours),
-    is_tired: Boolean(input.is_tired),
+    is_tired: parseBoolean(input.is_tired),
     planning_start: input.planning_start || null,
     planning_end: input.planning_end || null,
     mood_text_original: input.mood_text_original || '',
@@ -685,6 +693,10 @@ export async function updateScheduleItemStatus(scheduleItemId, input) {
   if (!schedule) throw createHttpError(404, 'Schedule not found.');
   const dayKey = dateOnly(item.start_time);
   assertWritableDay(dayKey);
+
+  if (isBreakScheduleItem(item)) {
+    throw createHttpError(400, 'Break items are timeline items and cannot be started, completed, or removed like tasks.');
+  }
 
   const status = normalizeScheduleItemStatus(input.status);
   if (status === 'in_progress' && item.task_kind === 'fixed' && !input.automatic) {
@@ -1029,7 +1041,8 @@ async function ensureAdviceNotes(context) {
 }
 
 function buildDailyAdviceContext({ userId, date, schedule, items = [], tasks = [], dailyCheckin, feedback = [], dailyEvaluation }) {
-  const activeItems = items.filter((item) => item.status !== 'removed');
+  const breakItems = items.filter(isBreakScheduleItem);
+  const activeItems = items.filter((item) => item.status !== 'removed' && !isBreakScheduleItem(item));
   const completedItems = activeItems.filter((item) => item.status === 'completed');
   const inProgressItem = activeItems.find((item) => item.status === 'in_progress') || null;
   const waitingItems = activeItems.filter((item) => item.status === 'waiting' || item.status === 'overdue');
@@ -1046,6 +1059,7 @@ function buildDailyAdviceContext({ userId, date, schedule, items = [], tasks = [
     visibleTasks.filter((task) => isTaskComplete(task)).length
   );
   const unfinishedTaskCount = waitingItems.length + (inProgressItem ? 1 : 0) + unscheduledTasks.length;
+  const completionPercentage = getCompletionPercentage(completedTaskCount, completedTaskCount + unfinishedTaskCount);
 
   return {
     user_id: userId,
@@ -1060,7 +1074,8 @@ function buildDailyAdviceContext({ userId, date, schedule, items = [], tasks = [
     sleep_hours: dailyCheckin?.sleep_hours ?? null,
     completed_tasks_count: completedTaskCount,
     unfinished_tasks_count: unfinishedTaskCount,
-    productivity_score: dailyEvaluation?.productivity_score ?? estimateProductivityScore(completedTaskCount, unfinishedTaskCount),
+    completion_percentage: completionPercentage,
+    productivity_score: completionPercentage === 100 ? 100 : dailyEvaluation?.productivity_score ?? estimateProductivityScore(completedTaskCount, unfinishedTaskCount),
     waiting_tasks: [
       ...waitingItems.map(mapScheduleItemForAdvice),
       ...unscheduledTasks.map((task) => mapTaskForAdvice(task, date))
@@ -1069,6 +1084,7 @@ function buildDailyAdviceContext({ userId, date, schedule, items = [], tasks = [
     unfinished_tasks: unscheduledTasks.map((task) => mapTaskForAdvice(task, date)),
     deadline_tasks: deadlineTasks,
     current_task_status: inProgressItem ? mapScheduleItemForAdvice(inProgressItem) : null,
+    breaks_count: breakItems.length,
     task_feedback: feedback,
     feedback_summary: buildFeedbackSummary(feedback, tasks, items)
   };
@@ -1114,6 +1130,39 @@ function filterScheduleItemsForDisplayDate(items = [], tasks = [], date) {
   });
 }
 
+function filterAdviceNotesForCheckin(notes = [], dailyCheckin = null) {
+  if (!dailyCheckin) return notes;
+  const energy = parseInteger(dailyCheckin.predicted_energy_level || dailyCheckin.energy_level, 3);
+  const stress = parseInteger(dailyCheckin.stress_level, 3);
+  const mood = parseInteger(dailyCheckin.mood_level, 3);
+  const sleepHours = Number.parseFloat(dailyCheckin.sleep_hours || 0);
+  const strongEnergyDay = energy >= 4 && stress <= 2 && mood >= 4 && sleepHours >= 7 && !parseBoolean(dailyCheckin.is_tired);
+  if (!strongEnergyDay) return notes;
+  return notes.filter((note) => {
+    const noteText = `${note.note_type || ''} ${note.title || ''} ${note.message || ''}`.toLowerCase();
+    return !noteText.includes('low energy') && !noteText.includes('low-energy') && !noteText.includes('energy is low');
+  });
+}
+
+function selectLatestDailyAdviceNotes(notes = []) {
+  if (notes.length <= 6) return notes;
+  const sorted = [...notes].sort((a, b) => new Date(b.created_at || b.note_date || 0) - new Date(a.created_at || a.note_date || 0));
+  const latestTime = new Date(sorted[0]?.created_at || sorted[0]?.note_date || 0).getTime();
+  const latestBatch = sorted.filter((note) => {
+    const noteTime = new Date(note.created_at || note.note_date || 0).getTime();
+    return Number.isFinite(noteTime) && Number.isFinite(latestTime) && Math.abs(latestTime - noteTime) <= 120000;
+  });
+  const currentNotes = latestBatch.length >= 3 ? latestBatch : sorted.slice(0, 6);
+  const complexDay = currentNotes.some((note) => {
+    const noteType = String(note.note_type || note.advice_type || '').toLowerCase();
+    const priority = parseInteger(note.priority, 3);
+    return priority <= 1 || ['deadline', 'stress', 'time_management', 'feedback'].includes(noteType);
+  });
+  return currentNotes
+    .sort((a, b) => parseInteger(a.priority, 3) - parseInteger(b.priority, 3))
+    .slice(0, complexDay ? 12 : 6);
+}
+
 function getCompletionDateForItem(item, task = null) {
   return dateOnly(
     item?.actual_completed_at ||
@@ -1155,8 +1204,12 @@ function buildFeedbackSummary(feedback = [], tasks = [], scheduleItems = []) {
   const enriched = enrichFeedbackForAdvice(feedback, tasks, scheduleItems);
   const overruns = enriched.filter((item) => item.actual_duration_minutes && item.planned_duration_minutes && item.actual_duration_minutes > item.planned_duration_minutes * 1.25);
   const latestOverrun = overruns[overruns.length - 1] || null;
+  const difficultFeedback = enriched.filter((item) => parseOptionalInteger(item.difficulty_feedback) >= 4);
+  const latestDifficult = difficultFeedback[difficultFeedback.length - 1] || null;
   const relatedTask = latestOverrun ? taskById.get(latestOverrun.task_id) : null;
   const relatedItem = latestOverrun ? itemById.get(latestOverrun.schedule_item_id) : null;
+  const difficultTask = latestDifficult ? taskById.get(latestDifficult.task_id) : null;
+  const difficultItem = latestDifficult ? itemById.get(latestDifficult.schedule_item_id) : null;
 
   return {
     feedback_count: feedback.length,
@@ -1164,6 +1217,9 @@ function buildFeedbackSummary(feedback = [], tasks = [], scheduleItems = []) {
     overrun_count: overruns.length,
     latest_overrun_task: relatedTask?.title || relatedItem?.title || null,
     latest_overrun_task_id: latestOverrun?.task_id || null,
+    difficult_count: difficultFeedback.length,
+    latest_difficult_task: difficultTask?.title || difficultItem?.title || null,
+    latest_difficult_task_id: latestDifficult?.task_id || null,
     comments: feedback.map((item) => item.comment).filter(Boolean).slice(-3)
   };
 }
@@ -1234,6 +1290,21 @@ function estimateProductivityScore(completedCount, unfinishedCount) {
 
 function isTaskComplete(task) {
   return Boolean(task?.is_completed) || task?.status === 'completed';
+}
+
+function isBreakScheduleItem(item = {}) {
+  const kind = String(item.task_kind || '').trim().toLowerCase();
+  const category = String(item.category || item.task?.category || '').trim().toLowerCase();
+  const energySlot = String(item.energy_slot || '').trim().toLowerCase();
+  const title = String(item.title || '').trim().toLowerCase();
+  return (
+    kind === 'break' ||
+    category === 'break' ||
+    energySlot === 'break' ||
+    title === 'break' ||
+    title === 'short break' ||
+    title === 'rest break'
+  );
 }
 
 function normalizeAdviceScope(scope) {
@@ -1480,7 +1551,7 @@ async function saveDailyEvaluationForDate(userId, date) {
   ]);
   const dayLog = dailyLogs.find((log) => dateOnly(log.log_date) === date);
   const schedule = latestRecord(schedules.filter((item) => dateOnly(item.schedule_date) === date), 'generated_at');
-  const activeItems = items.filter((item) => item.status !== 'removed');
+  const activeItems = items.filter((item) => item.status !== 'removed' && !isBreakScheduleItem(item));
   const completedItems = activeItems.filter((item) => item.status === 'completed');
   const totalTasks = activeItems.length;
   const completedTasks = completedItems.length;
@@ -1865,6 +1936,19 @@ function parseInteger(value, fallback) {
 function parseOptionalInteger(value) {
   const parsed = Number.parseInt(value, 10);
   return Number.isNaN(parsed) ? null : parsed;
+}
+
+function getCompletionPercentage(completedTasks, totalTasks) {
+  if (!totalTasks) return 0;
+  if (completedTasks >= totalTasks) return 100;
+  return Math.round((completedTasks / totalTasks) * 100);
+}
+
+function parseBoolean(value) {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') return value === 1;
+  if (typeof value === 'string') return ['true', '1', 'yes', 'on'].includes(value.trim().toLowerCase());
+  return false;
 }
 
 async function insertIfSupported(methodName, record) {

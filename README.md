@@ -1004,6 +1004,11 @@ http://127.0.0.1:3000
 - Added `actual_started_at`, `actual_completed_at`, and `completed_date` support in the schema.
 - Updated flexible task timing so actual duration is calculated from the real start action to the real finish action.
 - Daily Evaluation and Progress planned-vs-actual calculations now use the saved actual duration.
+- Fixed Weekly Dashboard day-circle completion so 100% days are full green circles and day progress uses `completedTasks / totalTasks * 100`.
+- Fixed `is_tired` parsing in Node, Python, and the Daily Check-In form so `false` / `0` is not treated as tired.
+- Updated mood/energy advice so high energy, good sleep, low stress, and positive mood produce positive energy guidance instead of low-energy advice.
+- Expanded Daily Details AI advice rules for strong energy, full completion, unfinished tasks, overruns, difficult feedback, deadlines, and active tasks.
+- Filtered stale low-energy saved notes from Daily Details when the selected day check-in clearly indicates strong energy.
 
 ### 2026-05-24
 - Updated Task Breakdown so subtasks are generated dynamically by the Python AI service when a task starts.

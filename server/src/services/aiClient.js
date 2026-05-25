@@ -104,8 +104,8 @@ function fallbackMoodAnalysis(payload, error) {
     predicted_mood: result.detected_emotion,
     detected_emotion: result.detected_emotion,
     stress_estimation: parseInteger(payload.stress_level, 3),
-    fatigue_detected: Boolean(payload.is_tired) || Number.parseFloat(payload.sleep_hours || 7) < 6,
-    fatigue_score: Boolean(payload.is_tired) ? 2 : 0,
+    fatigue_detected: parseBoolean(payload.is_tired) || Number.parseFloat(payload.sleep_hours || 7) < 6,
+    fatigue_score: parseBoolean(payload.is_tired) ? 2 : 0,
     predicted_energy_level: result.predicted_energy_level,
     energy_insights: result.ai_advice,
     ai_advice: result.ai_advice,
@@ -193,16 +193,46 @@ function fallbackSubtasks(payload, error) {
 function fallbackAdvice(payload, error) {
   const scope = payload.scope || payload.period || 'daily';
   const advice = [];
+  const addAdvice = (note) => {
+    const key = `${note.scope}|${note.advice_type}|${note.title}|${note.message}`;
+    if (!advice.some((item) => `${item.scope}|${item.advice_type}|${item.title}|${item.message}` === key)) {
+      advice.push(note);
+    }
+  };
   const checkin = payload.daily_checkin || payload;
   const energy = parseInteger(checkin.predicted_energy_level || checkin.energy_level, 3);
   const stress = parseInteger(checkin.stress_level, 3);
   const sleep = Number.parseFloat(checkin.sleep_hours || 7);
+  const mood = parseInteger(checkin.mood_level, 3);
+  const isTired = parseBoolean(checkin.is_tired);
   const unfinished = parseInteger(payload.unfinished_tasks_count, 0);
   const completed = parseInteger(payload.completed_tasks_count, 0);
-  const productivity = Number.parseInt(payload.productivity_score, 10);
+  const productivity = Number.parseInt(payload.productivity_score ?? payload.completion_percentage, 10);
+  const feedbackSummary = payload.feedback_summary || {};
+  const deadlineTasks = Array.isArray(payload.deadline_tasks) ? payload.deadline_tasks : [];
+  const currentTask = payload.current_task_status || null;
+  const breaksCount = parseInteger(payload.breaks_count, 0);
+  const hasCheckinData = ['mood_level', 'energy_level', 'predicted_energy_level', 'stress_level', 'sleep_hours']
+    .some((key) => checkin?.[key] !== undefined && checkin?.[key] !== null);
+  const hasTaskData = completed + unfinished > 0 || Boolean(currentTask) || deadlineTasks.length > 0;
 
-  if (energy <= 2 || sleep < 5.5) {
+  if (!hasCheckinData && !hasTaskData) {
+    advice.push(buildAdviceNote('recommendation', 'No enough data yet', 'Add a daily check-in and tasks so the planner can generate personalized advice for this day.', 3, scope, payload));
+    return {
+      module: 'advice_generation',
+      source: 'node_rule_based_fallback',
+      model: 'local_advice_rules',
+      advice,
+      confidence: 0.45,
+      fallback_reason: error.message
+    };
+  }
+
+  if (energy <= 2 || sleep < 5.5 || isTired) {
     advice.push(buildAdviceNote('energy', 'Low energy plan', 'Your energy is low today. Start with easier tasks and add short breaks before difficult work.', 1, scope, payload));
+  }
+  if (energy >= 4 && sleep >= 7 && stress <= 2 && mood >= 4 && !isTired) {
+    advice.push(buildAdviceNote('energy', 'Strong energy window', 'Your energy is strong today. This is a good time for difficult or high-priority tasks.', 2, scope, payload));
   }
   if (stress >= 4) {
     advice.push(buildAdviceNote('stress', 'High stress warning', 'Your stress level is high. Avoid placing many difficult tasks together.', 1, scope, payload));
@@ -210,24 +240,78 @@ function fallbackAdvice(payload, error) {
   if (unfinished > completed && unfinished > 1) {
     advice.push(buildAdviceNote('productivity', 'Focus unfinished tasks', `You still have ${unfinished} unfinished tasks. Start with the highest-priority item.`, 2, scope, payload));
   }
-  if (!Number.isNaN(productivity) && productivity >= 80) {
+  if (!Number.isNaN(productivity) && productivity === 100) {
+    advice.push(buildAdviceNote('productivity', 'Excellent progress today', 'Excellent progress today. You completed all planned tasks.', 2, scope, payload));
+  } else if (!Number.isNaN(productivity) && productivity >= 80) {
     advice.push(buildAdviceNote('productivity', 'Good progress today', 'Good progress today. Keep using your strongest energy hours for difficult tasks.', 3, scope, payload));
   }
+  if (parseInteger(feedbackSummary.overrun_count, 0) > 0) {
+    advice.push(buildAdviceNote('time_management', 'Adjust future estimates', 'Some tasks took longer than expected. Similar tasks may need more time next time.', 2, scope, payload));
+  }
+  if (parseInteger(feedbackSummary.difficult_count, 0) > 0) {
+    advice.push(buildAdviceNote('feedback', 'Add recovery after difficult work', 'The last task felt difficult. Consider adding a break before the next hard task.', 2, scope, payload));
+  }
+  if (deadlineTasks.length > 0) {
+    advice.push(buildAdviceNote('deadline', 'Deadline needs attention', `${deadlineTasks[0].title || 'A deadline task'} needs focused time before lower-priority work.`, 2, scope, payload));
+  }
+  if (currentTask?.title) {
+    advice.push(buildAdviceNote('task', 'Active task focus', `${currentTask.title} is currently in progress. Keep the next step small and update feedback when you finish.`, 3, 'task', payload, currentTask.task_id));
+  }
+
+  if (!hasTaskData) {
+    addAdvice(buildAdviceNote('recommendation', 'No enough data yet', 'Your check-in is saved. Add tasks or generate a schedule so advice can connect to today\'s actual plan.', 3, scope, payload));
+  } else {
+    if (completed > 0) {
+      addAdvice(buildAdviceNote('productivity', 'Completed task momentum', `You completed ${completed} task${completed === 1 ? '' : 's'} today. Use what worked in those blocks when planning the next task.`, 3, scope, payload));
+    }
+    if (unfinished > 0) {
+      addAdvice(buildAdviceNote('schedule', 'Next task choice', `${unfinished} task${unfinished === 1 ? ' is' : 's are'} still waiting. Choose the highest-priority item before adding new work.`, 3, scope, payload));
+    }
+    if (!Number.isNaN(productivity) && productivity > 0 && productivity < 100) {
+      addAdvice(buildAdviceNote('productivity', 'Progress snapshot', `Your current completion is ${productivity}%. Keep the next session focused on one clear task.`, 3, scope, payload));
+    }
+    if (sleep >= 7 && energy >= 3) {
+      addAdvice(buildAdviceNote('energy', 'Rest supports focus', 'Your sleep looks supportive today. Protect the time block where you feel most alert.', 3, scope, payload));
+    }
+    if (stress <= 2) {
+      addAdvice(buildAdviceNote('stress', 'Manageable stress', 'Stress looks manageable today. This is a good setup for steady focused work.', 3, scope, payload));
+    }
+    if (mood >= 4) {
+      addAdvice(buildAdviceNote('mood', 'Positive mood momentum', 'Your mood check-in is positive. Use that momentum on work that needs attention and patience.', 3, scope, payload));
+    }
+    if (breaksCount > 0) {
+      addAdvice(buildAdviceNote('schedule', 'Protect break time', `Your schedule includes ${breaksCount} break${breaksCount === 1 ? '' : 's'}. Keep that time for recovery instead of treating it like another task.`, 3, scope, payload));
+    }
+    if (advice.length < 5) {
+      addAdvice(buildAdviceNote('schedule', 'Plan snapshot', `Today has ${completed} completed, ${unfinished} waiting, and ${currentTask ? '1 in progress' : 'none in progress'}. Keep the next step small and visible.`, 3, scope, payload));
+    }
+    if (advice.length < 5) {
+      addAdvice(buildAdviceNote('recommendation', 'Keep the plan realistic', 'Match difficult work with your best energy and move non-urgent tasks if the day gets crowded.', 4, scope, payload));
+    }
+  }
+
   if (advice.length === 0) {
     advice.push(buildAdviceNote('recommendation', 'Keep the plan balanced', 'Use task progress and feedback to keep the next schedule realistic.', 3, scope, payload));
   }
+
+  const complexDay = energy <= 2 ||
+    stress >= 4 ||
+    unfinished >= 4 ||
+    deadlineTasks.length > 0 ||
+    parseInteger(feedbackSummary.overrun_count, 0) > 0 ||
+    parseInteger(feedbackSummary.difficult_count, 0) > 0;
 
   return {
     module: 'advice_generation',
     source: 'node_rule_based_fallback',
     model: 'local_advice_rules',
-    advice,
+    advice: advice.slice(0, complexDay ? 12 : 6),
     confidence: 0.45,
     fallback_reason: error.message
   };
 }
 
-function buildAdviceNote(adviceType, title, message, priority, scope, payload) {
+function buildAdviceNote(adviceType, title, message, priority, scope, payload, relatedTaskId = null) {
   return {
     advice_type: adviceType,
     title,
@@ -235,11 +319,18 @@ function buildAdviceNote(adviceType, title, message, priority, scope, payload) {
     priority,
     scope,
     related_date: payload.date || payload.related_date || null,
-    related_task_id: null
+    related_task_id: relatedTaskId
   };
 }
 
 function parseInteger(value, fallback) {
   const parsed = Number.parseInt(value, 10);
   return Number.isNaN(parsed) ? fallback : parsed;
+}
+
+function parseBoolean(value) {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') return value === 1;
+  if (typeof value === 'string') return ['true', '1', 'yes', 'on'].includes(value.trim().toLowerCase());
+  return false;
 }

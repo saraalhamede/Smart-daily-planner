@@ -59,15 +59,16 @@ export function analyzeMoodEnergy(input) {
   const energyLevel = clamp(input.energy_level, 1, 5, 3);
   const stressLevel = clamp(input.stress_level, 1, 5, 3);
   const sleepHours = Number.parseFloat(input.sleep_hours ?? 7);
-  const isTired = Boolean(input.is_tired);
+  const isTired = parseBoolean(input.is_tired);
   const moodText = String(input.mood_text_original || "");
 
   let predictedEnergy = energyLevel;
   if (sleepHours < 5) predictedEnergy -= 1;
   if (stressLevel >= 4) predictedEnergy -= 1;
   if (isTired) predictedEnergy -= 1;
-  if (sleepHours >= 7 && moodLevel >= 4 && stressLevel <= 2)
+  if (sleepHours >= 7 && moodLevel >= 4 && stressLevel <= 2 && !isTired) {
     predictedEnergy += 1;
+  }
   predictedEnergy = clamp(predictedEnergy, 1, 5, energyLevel);
 
   return {
@@ -136,7 +137,18 @@ function buildAdvice(predictedEnergy, stressLevel, isTired) {
     return "Stress is high. Add breaks and avoid too many heavy tasks together.";
   if (isTired)
     return "Tiredness may reduce focus, so the schedule should stay lighter.";
+  if (predictedEnergy >= 4 && stressLevel <= 2)
+    return "Energy looks strong today. This is a good time for focused or difficult work.";
   return "Balanced day. Mix priorities with healthy breaks.";
+}
+
+function parseBoolean(value) {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value === 1;
+  if (typeof value === "string") {
+    return ["true", "1", "yes", "on"].includes(value.trim().toLowerCase());
+  }
+  return false;
 }
 
 function clamp(value, min, max, fallback = min) {

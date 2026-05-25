@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from .common import clamp, detect_language, number, text
+from .common import boolean, clamp, detect_language, number, text
 
 
 EMOTION_WORDS = {
@@ -17,7 +17,7 @@ def analyze_mood(payload: dict) -> dict:
     energy_level = clamp(payload.get("energy_level"), 1, 5, 3)
     stress_level = clamp(payload.get("stress_level"), 1, 5, 3)
     sleep_hours = number(payload.get("sleep_hours"), 7.0)
-    is_tired = bool(payload.get("is_tired"))
+    is_tired = boolean(payload.get("is_tired"))
 
     predicted_energy = energy_level
     if sleep_hours < 5:
@@ -26,7 +26,7 @@ def analyze_mood(payload: dict) -> dict:
         predicted_energy -= 1
     if is_tired:
         predicted_energy -= 1
-    if sleep_hours >= 7 and mood_level >= 4 and stress_level <= 2:
+    if sleep_hours >= 7 and mood_level >= 4 and stress_level <= 2 and not is_tired:
         predicted_energy += 1
     predicted_energy = max(1, min(5, predicted_energy))
 
@@ -106,6 +106,8 @@ def build_advice(predicted_energy: int, stress_level: int, fatigue_score: int) -
         return "Prefer lighter tasks, shorter sessions, and more breaks today."
     if stress_level >= 4:
         return "Keep difficult work limited and add recovery breaks between blocks."
+    if predicted_energy >= 4 and stress_level <= 2:
+        return "Energy looks strong today. This is a good time for focused or difficult work."
     return "Use priority and deadlines normally, with balanced breaks."
 
 
