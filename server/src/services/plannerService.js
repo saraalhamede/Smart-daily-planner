@@ -190,14 +190,15 @@ export async function getDailyDetails(userId, date) {
     store.listDailyEvaluations(userId)
   ]);
 
+  const displayItems = filterScheduleItemsForDisplayDate(items, tasks, date);
   const dailyCheckin = dailyLogs.find((log) => dateOnly(log.log_date) === date) || null;
-  const dayFeedback = feedback.filter((item) => !item.schedule_item_id || items.some((scheduleItem) => scheduleItem.schedule_item_id === item.schedule_item_id));
+  const dayFeedback = feedback.filter((item) => !item.schedule_item_id || displayItems.some((scheduleItem) => scheduleItem.schedule_item_id === item.schedule_item_id));
   const dailyEvaluation = dailyEvaluations.find((evaluation) => dateOnly(evaluation.evaluation_date) === date) || null;
   await ensureAdviceNotes(buildDailyAdviceContext({
     userId,
     date,
     schedule,
-    items,
+    items: displayItems,
     tasks,
     dailyCheckin,
     feedback: dayFeedback,
@@ -207,8 +208,8 @@ export async function getDailyDetails(userId, date) {
 
   return {
     schedule,
-    items,
-    schedule_items: items,
+    items: displayItems,
+    schedule_items: displayItems,
     tasks,
     daily_checkin: dailyCheckin,
     task_feedback: dayFeedback,
@@ -227,14 +228,15 @@ export async function getDayData(userId, date) {
     store.listAiNotes(userId),
     store.listDailyEvaluations(userId)
   ]);
+  const displayItems = filterScheduleItemsForDisplayDate(items, tasks, date);
   return {
     date,
     daily_checkin: dailyLogs.find((log) => dateOnly(log.log_date) === date) || null,
     daily_log: dailyLogs.find((log) => dateOnly(log.log_date) === date) || null,
     tasks: tasks.filter((task) => isTaskVisibleOnDate(task, date)),
     schedule,
-    schedule_items: items,
-    items,
+    schedule_items: displayItems,
+    items: displayItems,
     ai_notes: aiNotes.filter((note) => dateOnly(note.note_date || note.created_at) === date),
     daily_evaluation: dailyEvaluations.find((evaluation) => dateOnly(evaluation.evaluation_date) === date) || null
   };
@@ -393,7 +395,7 @@ export async function getProgressSummary(userId, period = 'weekly') {
     store.listFeedback(userId),
     store.listDailyEvaluations(userId)
   ]);
-  const filteredTasks = tasks.filter((task) => (dateOnly(task.completed_on || task.completed_at || task.task_date || task.created_at) || todayKey()) >= startDate);
+  const filteredTasks = tasks.filter((task) => (dateOnly(task.completed_date || task.completed_on || task.completed_at || task.task_date || task.created_at) || todayKey()) >= startDate);
   const completedTasks = filteredTasks.filter((task) => Boolean(task.is_completed) || task.status === 'completed');
   const plannedMinutes = scheduleItems
     .filter((item) => dateOnly(item.start_time) >= startDate)
@@ -662,7 +664,7 @@ export async function submitFeedback(input) {
   if (!feedback.task_id) throw createHttpError(400, 'task_id is required.');
 
   await store.insertFeedback(feedback);
-  await updateTaskAndItemFromFeedback(feedback);
+  await updateTaskAndItemFromFeedback(feedback, sourceItem);
 
   const date = sourceItem ? dateOnly(sourceItem.start_time) : null;
   const evaluation = date ? await saveDailyEvaluationForDate(feedback.user_id, date) : null;
@@ -784,12 +786,15 @@ async function loadScheduleContext(userId, dailyLogId, scheduleDate) {
   return { preferences, dailyLog, tasks, feedback };
 }
 
-async function updateTaskAndItemFromFeedback(feedback) {
+async function updateTaskAndItemFromFeedback(feedback, sourceItem = null) {
   const task = await store.getTask(feedback.task_id);
   if (!task) return;
 
   const currentRemaining = parseInteger(task.remaining_duration_minutes, task.estimated_duration_minutes || 0);
-  const actualDuration = feedback.actual_duration_minutes || 0;
+  const completedAt = new Date().toISOString();
+  const completionDate = dateOnly(completedAt);
+  const actualDuration = feedback.actual_duration_minutes ||
+    (sourceItem ? calculateActualDurationFromItem(sourceItem, completedAt) : 0);
   const updates = { updated_at: new Date().toISOString() };
   const itemUpdates = {};
 
@@ -799,12 +804,14 @@ async function updateTaskAndItemFromFeedback(feedback) {
       status: 'completed',
       remaining_duration_minutes: 0,
       actual_duration_minutes: actualDuration || task.actual_duration_minutes,
-      completed_on: todayKey(),
-      completed_at: new Date().toISOString()
+      completed_on: completionDate,
+      completed_date: completionDate,
+      completed_at: completedAt
     });
     Object.assign(itemUpdates, {
       status: 'completed',
       completed_at: updates.completed_at,
+      actual_completed_at: updates.completed_at,
       actual_duration_minutes: actualDuration || undefined
     });
   } else if (feedback.outcome === 'return_to_waiting' || feedback.outcome === 'waiting') {
@@ -813,6 +820,7 @@ async function updateTaskAndItemFromFeedback(feedback) {
       status: 'pending',
       remaining_duration_minutes: Math.max(15, currentRemaining - actualDuration || Math.ceil(currentRemaining * 0.5)),
       completed_on: null,
+      completed_date: null,
       completed_at: null
     });
     Object.assign(itemUpdates, { status: 'waiting' });
@@ -822,6 +830,7 @@ async function updateTaskAndItemFromFeedback(feedback) {
       status: 'in_progress',
       remaining_duration_minutes: Math.max(15, currentRemaining - actualDuration || currentRemaining),
       completed_on: null,
+      completed_date: null,
       completed_at: null
     });
     Object.assign(itemUpdates, { status: 'in_progress' });
@@ -840,11 +849,14 @@ async function updateTaskAndItemFromFeedback(feedback) {
 async function updateTaskForScheduleStatus(item, status, dayKey) {
   const updates = { updated_at: new Date().toISOString() };
   if (status === 'completed') {
+    const completedAt = item.actual_completed_at || item.completed_at || new Date().toISOString();
+    const completedDate = dateOnly(completedAt) || dayKey;
     Object.assign(updates, {
       status: 'completed',
       is_completed: true,
-      completed_on: dayKey,
-      completed_at: item.completed_at || new Date().toISOString(),
+      completed_on: completedDate,
+      completed_date: completedDate,
+      completed_at: completedAt,
       actual_duration_minutes: item.actual_duration_minutes || null,
       remaining_duration_minutes: 0
     });
@@ -852,6 +864,9 @@ async function updateTaskForScheduleStatus(item, status, dayKey) {
     Object.assign(updates, {
       status: 'removed',
       is_completed: false,
+      completed_on: null,
+      completed_date: null,
+      completed_at: null,
       removed_at: new Date().toISOString()
     });
   } else if (status === 'in_progress') {
@@ -859,6 +874,7 @@ async function updateTaskForScheduleStatus(item, status, dayKey) {
       status: 'in_progress',
       is_completed: false,
       completed_on: null,
+      completed_date: null,
       completed_at: null
     });
   } else {
@@ -866,6 +882,7 @@ async function updateTaskForScheduleStatus(item, status, dayKey) {
       status: 'pending',
       is_completed: false,
       completed_on: null,
+      completed_date: null,
       completed_at: null
     });
   }
@@ -1062,7 +1079,7 @@ function buildPeriodAdviceContext({ userId, period, startDate, dailyLogs = [], f
   const filteredFeedback = feedback.filter((item) => dateOnly(item.created_at) >= startDate);
   const filteredEvaluations = dailyEvaluations.filter((evaluation) => dateOnly(evaluation.evaluation_date) >= startDate);
   const filteredItems = scheduleItems.filter((item) => dateOnly(item.start_time || item.created_at) >= startDate);
-  const filteredTasks = tasks.filter((task) => (dateOnly(task.completed_on || task.completed_at || task.task_date || task.created_at) || todayKey()) >= startDate);
+  const filteredTasks = tasks.filter((task) => (dateOnly(task.completed_date || task.completed_on || task.completed_at || task.task_date || task.created_at) || todayKey()) >= startDate);
   const completedTasks = filteredTasks.filter(isTaskComplete);
   const unfinishedTasks = filteredTasks.filter((task) => !isTaskComplete(task) && !['removed', 'deleted', 'cancelled'].includes(String(task.status || '').toLowerCase()));
   const averageProductivity = averageNumber(filteredEvaluations.map((evaluation) => evaluation.productivity_score));
@@ -1085,6 +1102,26 @@ function buildPeriodAdviceContext({ userId, period, startDate, dailyLogs = [], f
     productivity_score: averageProductivity === null ? null : Math.round(averageProductivity),
     feedback_summary: buildFeedbackSummary(filteredFeedback, tasks, scheduleItems)
   };
+}
+
+function filterScheduleItemsForDisplayDate(items = [], tasks = [], date) {
+  const taskById = new Map(tasks.map((task) => [task.task_id, task]));
+  return items.filter((item) => {
+    const task = taskById.get(item.task_id) || item.task || null;
+    const completionDate = getCompletionDateForItem(item, task);
+    if (!completionDate) return true;
+    return completionDate === date;
+  });
+}
+
+function getCompletionDateForItem(item, task = null) {
+  return dateOnly(
+    item?.actual_completed_at ||
+    item?.completed_at ||
+    task?.completed_date ||
+    task?.completed_on ||
+    task?.completed_at
+  );
 }
 
 function normalizeGeneratedAdvice(advice, context) {
@@ -1452,7 +1489,7 @@ async function saveDailyEvaluationForDate(userId, date) {
   const plannedMinutes = activeItems.reduce((sum, item) => sum + getDurationMinutes(item.start_time, item.end_time), 0);
   const actualMinutes = completedItems.reduce((sum, item) => {
     const actual = parseOptionalInteger(item.actual_duration_minutes);
-    return sum + (actual || getDurationMinutes(item.started_at || item.start_time, item.completed_at || item.end_time));
+    return sum + (actual || getDurationMinutes(item.actual_started_at || item.started_at || item.start_time, item.actual_completed_at || item.completed_at || item.end_time));
   }, 0);
   const timeScore = plannedMinutes
     ? clampScore(Math.round(100 - Math.min(65, Math.abs(actualMinutes - plannedMinutes) / plannedMinutes * 100)))
@@ -1488,19 +1525,23 @@ async function autoTransitionFixedTasks(userId, date) {
     const end = new Date(item.end_time);
     if (!isValidDate(start) || !isValidDate(end)) continue;
     if (now >= end && item.status !== 'completed') {
+      const completedAt = now.toISOString();
       await updateScheduleItemStatus(item.schedule_item_id, {
         status: 'completed',
         automatic: true,
-        completed_at: now.toISOString(),
-        actual_duration_minutes: getDurationMinutes(item.started_at || item.start_time, now.toISOString())
+        completed_at: completedAt,
+        actual_completed_at: completedAt,
+        actual_duration_minutes: getDurationMinutes(item.actual_started_at || item.started_at || item.start_time, completedAt)
       });
       continue;
     }
     if (now >= start && now < end && item.status !== 'in_progress') {
+      const startedAt = now.toISOString();
       await updateScheduleItemStatus(item.schedule_item_id, {
         status: 'in_progress',
         automatic: true,
-        started_at: now.toISOString()
+        started_at: startedAt,
+        actual_started_at: startedAt
       });
     }
   }
@@ -1595,6 +1636,7 @@ function buildTaskUpdates(input, existing) {
     status: input.status,
     is_completed: input.is_completed,
     completed_on: input.completed_on,
+    completed_date: input.completed_date || input.completed_on,
     completed_at: input.completed_at,
     actual_duration_minutes: input.actual_duration_minutes,
     removed_at: input.removed_at,
@@ -1607,17 +1649,24 @@ function buildTaskUpdates(input, existing) {
 function buildScheduleItemStatusUpdates(item, status, input) {
   const now = new Date().toISOString();
   if (status === 'in_progress') {
+    const startedAt = input.actual_started_at || input.started_at || now;
     return {
       status,
-      started_at: input.started_at || item.started_at || now,
+      started_at: startedAt,
+      actual_started_at: startedAt,
       restored_at: input.restored_at || item.restored_at || null
     };
   }
   if (status === 'completed') {
+    const completedAt = input.actual_completed_at || input.completed_at || now;
+    const actualDuration = calculateActualDurationFromItem(item, completedAt) ||
+      parseOptionalInteger(input.actual_duration_minutes) ||
+      getDurationMinutes(item.start_time, item.end_time);
     return {
       status,
-      completed_at: input.completed_at || now,
-      actual_duration_minutes: parseOptionalInteger(input.actual_duration_minutes) || getDurationMinutes(item.started_at || item.start_time, input.completed_at || now)
+      completed_at: completedAt,
+      actual_completed_at: completedAt,
+      actual_duration_minutes: actualDuration
     };
   }
   if (status === 'removed') {
@@ -1689,7 +1738,7 @@ function isTaskVisibleOnDate(task, targetDate) {
   if (!task || ['removed', 'deleted', 'cancelled'].includes(String(task.status || '').toLowerCase())) return false;
   if (task.is_fixed_time) return dateOnly(task.fixed_date) === targetDate;
 
-  const completedDate = dateOnly(task.completed_on || task.completed_at);
+  const completedDate = dateOnly(task.completed_date || task.completed_on || task.completed_at);
   if (completedDate) return completedDate === targetDate;
 
   const startDate = dateOnly(task.task_date || task.created_at);
@@ -1836,6 +1885,12 @@ function dateOnly(value) {
   if (!value) return null;
   if (value instanceof Date) return formatDateKey(value);
   return String(value).slice(0, 10);
+}
+
+function calculateActualDurationFromItem(item, completedAt) {
+  const actualStart = item?.actual_started_at || item?.started_at;
+  if (!actualStart || !completedAt) return null;
+  return getDurationMinutes(actualStart, completedAt) || null;
 }
 
 function todayKey() {

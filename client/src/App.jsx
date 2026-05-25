@@ -2282,9 +2282,11 @@ function DailyDetailsPage({
     }
 
     try {
+      const startedAt = new Date().toISOString();
       const result = await plannerApi.updateScheduleItemStatus(item.schedule_item_id, {
         status: 'in_progress',
-        started_at: new Date().toISOString()
+        started_at: startedAt,
+        actual_started_at: startedAt
       });
       applyScheduleItemResult(result);
       await onDataRefresh?.();
@@ -2301,12 +2303,15 @@ function DailyDetailsPage({
     }
 
     const completedAt = new Date();
+    const completedAtIso = completedAt.toISOString();
+    const actualDurationMinutes = calculateActualDurationMinutes(item, completedAt);
     if (item.schedule_item_id) {
       try {
         const result = await plannerApi.updateScheduleItemStatus(item.schedule_item_id, {
           status: 'completed',
-          completed_at: completedAt.toISOString(),
-          actual_duration_minutes: calculateActualDurationMinutes(item, completedAt)
+          completed_at: completedAtIso,
+          actual_completed_at: completedAtIso,
+          actual_duration_minutes: actualDurationMinutes
         });
         applyScheduleItemResult(result);
         await onDataRefresh?.();
@@ -2320,7 +2325,9 @@ function DailyDetailsPage({
           status: 'completed',
           is_completed: true,
           completed_on: dayKey,
-          completed_at: completedAt.toISOString(),
+          completed_date: dayKey,
+          completed_at: completedAtIso,
+          actual_duration_minutes: actualDurationMinutes,
           remaining_duration_minutes: 0
         });
         await onDataRefresh?.();
@@ -2335,7 +2342,8 @@ function DailyDetailsPage({
         ? {
             ...detailItem,
             status: 'completed',
-            completed_at: completedAt.toISOString(),
+            completed_at: completedAtIso,
+            actual_completed_at: completedAtIso,
             actual_duration_minutes: calculateActualDurationMinutes(detailItem, completedAt)
           }
         : detailItem
@@ -2344,7 +2352,9 @@ function DailyDetailsPage({
       status: 'completed',
       is_completed: true,
       completed_on: dayKey,
-      completed_at: completedAt.toISOString(),
+      completed_date: dayKey,
+      completed_at: completedAtIso,
+      actual_duration_minutes: actualDurationMinutes,
       remaining_duration_minutes: 0
     });
     setNotice('Task moved to Completed Tasks.');
@@ -2376,6 +2386,7 @@ function DailyDetailsPage({
       status: 'pending',
       is_completed: false,
       completed_on: null,
+      completed_date: null,
       completed_at: null
     });
     setNotice('Task returned to Waiting Tasks.');
@@ -2686,13 +2697,15 @@ function DailyDetailsPage({
         ...detailItem,
         status: targetStatus === 'waiting' ? getWaitingStatusForItem(detailItem, dayKey) : targetStatus,
         restored_at: restoreTime,
-        started_at: targetStatus === 'in_progress' ? restoreTime : detailItem.started_at
+        started_at: targetStatus === 'in_progress' ? restoreTime : detailItem.started_at,
+        actual_started_at: targetStatus === 'in_progress' ? restoreTime : detailItem.actual_started_at
       };
     }));
     onTaskStatusChange?.(item.task_id, {
       status: targetStatus === 'in_progress' ? 'in_progress' : 'pending',
       is_completed: false,
       completed_on: null,
+      completed_date: null,
       completed_at: null
     });
     setRestoreMenuItemId(null);
@@ -3256,6 +3269,7 @@ function CompletedTaskDetailsModal({ item, uiState, onClose }) {
   const totalSubtasks = uiState.subtasks.length || 1;
   const progress = Math.round((completedSubtasks / totalSubtasks) * 100);
   const feedback = uiState.lastFeedback;
+  const deadline = item.task?.deadline || item.deadline;
 
   return (
     <div className="feedback-modal-backdrop" role="presentation" onClick={onClose}>
@@ -3283,9 +3297,12 @@ function CompletedTaskDetailsModal({ item, uiState, onClose }) {
           <span><strong>Difficulty</strong>{difficultyLabel(item.difficulty_level || item.task?.difficulty_level)}</span>
           <span><strong>Planned start</strong>{formatTime(item.start_time)}</span>
           <span><strong>Planned end</strong>{formatTime(item.end_time)}</span>
+          <span><strong>Actual start</strong>{formatDateTime(item.actual_started_at || item.started_at || item.start_time)}</span>
+          <span><strong>Actual end</strong>{formatDateTime(item.actual_completed_at || item.completed_at || item.end_time)}</span>
           <span><strong>Planned duration</strong>{evaluation.plannedLabel}</span>
           <span><strong>Actual duration</strong>{evaluation.actualLabel}</span>
-          <span><strong>Completion time</strong>{formatTime(item.completed_at || item.end_time)}</span>
+          <span><strong>Completion time</strong>{formatDateTime(item.actual_completed_at || item.completed_at || item.end_time)}</span>
+          <span><strong>Deadline</strong>{deadline ? formatDateTime(deadline) : 'No deadline'}</span>
           <span><strong>Progress</strong>{progress}%</span>
         </div>
 
@@ -4431,7 +4448,7 @@ function buildAiNotesInsights({ tasks = [], scheduleItems = [], dailyLogs = [], 
   const periodStart = getInsightsPeriodStart(period);
   const filteredLogs = dailyLogs.filter((log) => new Date(datePart(log.log_date) || log.created_at) >= periodStart);
   const filteredTasks = tasks.filter((task) => {
-    const taskDate = datePart(task.completed_on) || datePart(task.completed_at) || datePart(task.task_date) || datePart(task.created_at);
+    const taskDate = datePart(task.completed_date) || datePart(task.completed_on) || datePart(task.completed_at) || datePart(task.task_date) || datePart(task.created_at);
     return !taskDate || new Date(`${taskDate}T00:00:00`) >= periodStart;
   });
   const filteredItems = scheduleItems.filter((item) => new Date(item.start_time) >= periodStart);
@@ -4580,7 +4597,7 @@ function buildProgressDashboardData({ tasks = [], scheduleItems = [], dailyLogs 
   const periodStart = getInsightsPeriodStart(period);
   const todayKey = toDateKey(new Date());
   const filteredTasks = tasks.filter((task) => {
-    const key = datePart(task.completed_on) || datePart(task.completed_at) || datePart(task.task_date) || datePart(task.created_at);
+    const key = datePart(task.completed_date) || datePart(task.completed_on) || datePart(task.completed_at) || datePart(task.task_date) || datePart(task.created_at);
     return !key || new Date(`${key}T00:00:00`) >= periodStart;
   });
   const filteredLogs = dailyLogs.filter((log) => {
@@ -4658,7 +4675,7 @@ function buildProductivityByDay(tasks) {
   const byDay = new Map();
 
   tasks.forEach((task) => {
-    const key = datePart(task.completed_on) || datePart(task.completed_at) || datePart(task.task_date) || datePart(task.created_at);
+    const key = datePart(task.completed_date) || datePart(task.completed_on) || datePart(task.completed_at) || datePart(task.task_date) || datePart(task.created_at);
     if (!key) return;
     const current = byDay.get(key) || { total: 0, completed: 0 };
     current.total += 1;
@@ -4950,6 +4967,7 @@ function initializeDailyDetailItems({ day, schedule, items = [], tasks = [] }) {
   const scheduledItems = items
     .filter((item) => !dayKey || datePart(item.start_time) === dayKey || datePart(schedule?.schedule_date) === dayKey)
     .filter((item) => !isTaskArchived(taskById.get(item.task_id)))
+    .filter((item) => shouldDisplayScheduledDetailItemOnDay(item, taskById.get(item.task_id), dayKey))
     .map((item, index) => {
       const task = taskById.get(item.task_id);
       const taskKind = item.task_kind || (task?.is_fixed_time ? 'fixed' : 'flexible');
@@ -4958,7 +4976,7 @@ function initializeDailyDetailItems({ day, schedule, items = [], tasks = [] }) {
         detail_id: item.schedule_item_id || item.task_id || `daily_item_${index}`,
         task,
         task_kind: taskKind,
-        status: normalizeDailyTaskStatus(item, task, taskKind, now)
+        status: normalizeDailyTaskStatus(item, task, taskKind, now, dayKey)
       };
       return withDeadlineDisplay(detailItem, task, dayKey || datePart(item.start_time));
     });
@@ -4993,8 +5011,16 @@ function buildDailyAdviceNotes(localAdvice = [], aiNotes = [], dayKey) {
   return [...savedNotes, ...localAdvice];
 }
 
-function normalizeDailyTaskStatus(item, task, taskKind, now) {
-  if (item.status === 'completed' || task?.is_completed) return 'completed';
+function shouldDisplayScheduledDetailItemOnDay(item, task, dayKey) {
+  if (!dayKey) return true;
+  const completionDay = getItemCompletionDayKey(item, task);
+  return !completionDay || completionDay === dayKey;
+}
+
+function normalizeDailyTaskStatus(item, task, taskKind, now, dayKey) {
+  if (item.status === 'completed' || task?.is_completed) {
+    return getItemCompletionDayKey(item, task) === dayKey ? 'completed' : getWaitingStatusForItem({ ...item, task }, dayKey);
+  }
   if (item.status === 'in_progress' || item.status === 'active') return 'in_progress';
   if (item.status === 'overdue') return 'overdue';
 
@@ -5110,7 +5136,13 @@ function getTaskDeadlineDayKey(task) {
 }
 
 function getTaskCompletionDayKey(task) {
-  return datePart(task?.completed_on) || datePart(task?.completed_at);
+  return datePart(task?.completed_date) || datePart(task?.completed_on) || datePart(task?.completed_at);
+}
+
+function getItemCompletionDayKey(item, task) {
+  return datePart(item?.actual_completed_at) ||
+    datePart(item?.completed_at) ||
+    getTaskCompletionDayKey(task || item?.task || item);
 }
 
 function getCalendarDayDiff(fromKey, toKey) {
@@ -5151,12 +5183,15 @@ function applyFixedTimeAutomation(items, now) {
     const end = new Date(item.end_time);
     if (!isValidDate(start) || !isValidDate(end)) return item;
     if (now >= end && item.status !== 'completed') {
+      const completedAt = now.toISOString();
       return {
         ...item,
         status: 'completed',
         started_at: item.started_at || item.start_time,
-        completed_at: now.toISOString(),
-        actual_duration_minutes: calculateActualDurationMinutes({ ...item, started_at: item.started_at || item.start_time }, now)
+        actual_started_at: item.actual_started_at || item.started_at || item.start_time,
+        completed_at: completedAt,
+        actual_completed_at: completedAt,
+        actual_duration_minutes: calculateActualDurationMinutes({ ...item, actual_started_at: item.actual_started_at || item.started_at || item.start_time }, now)
       };
     }
     return item;
@@ -5186,7 +5221,8 @@ function applyFixedTimeAutomation(items, now) {
       if (item.status !== 'in_progress') {
         notice = 'Fixed-time task started and was moved to In Progress.';
       }
-      return { ...item, status: 'in_progress', started_at: item.started_at || now.toISOString() };
+      const startedAt = now.toISOString();
+      return { ...item, status: 'in_progress', started_at: item.started_at || startedAt, actual_started_at: item.actual_started_at || item.started_at || startedAt };
     }
     if (currentActive && itemId === getDetailItemId(currentActive) && item.task_kind !== 'fixed') {
       notice = 'Fixed-time task started and was moved to In Progress.';
@@ -5416,13 +5452,13 @@ function getActualDurationMinutes(item) {
   const explicit = Number.parseInt(item.actual_duration_minutes || item.task?.actual_duration_minutes, 10);
   if (!Number.isNaN(explicit) && explicit > 0) return explicit;
 
-  const actualStart = item.started_at || item.actual_start_time || item.start_time;
-  const actualEnd = item.completed_at || item.actual_end_time || item.end_time;
+  const actualStart = item.actual_started_at || item.started_at || item.actual_start_time || item.start_time;
+  const actualEnd = item.actual_completed_at || item.completed_at || item.actual_end_time || item.end_time;
   return getDurationMinutes(actualStart, actualEnd) || getPlannedDurationMinutes(item);
 }
 
 function calculateActualDurationMinutes(item, completedAt = new Date()) {
-  const startedAt = new Date(item.started_at || item.actual_start_time || item.start_time);
+  const startedAt = new Date(item.actual_started_at || item.started_at || item.actual_start_time || item.start_time);
   if (isValidDate(startedAt) && isValidDate(completedAt) && completedAt > startedAt) {
     return Math.max(1, Math.round((completedAt - startedAt) / 60000));
   }
@@ -5597,6 +5633,19 @@ function formatTime(value) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return String(value).slice(0, 5);
   return new Intl.DateTimeFormat('en', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false
+  }).format(date);
+}
+
+function formatDateTime(value) {
+  if (!value) return '--';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return new Intl.DateTimeFormat('en', {
+    day: '2-digit',
+    month: '2-digit',
     hour: '2-digit',
     minute: '2-digit',
     hour12: false

@@ -999,6 +999,11 @@ http://127.0.0.1:3000
 - Saved generated advice into `ai_notes` with `source = ai_model`.
 - Added duplicate protection so opening AI Notes or Daily Details does not keep inserting the same advice.
 - Kept the scheduler final decisions rule-based; AI advice remains supportive.
+- Fixed Daily Details completed-task visibility so completed deadline tasks only appear on their real completion day.
+- Added deadline display to the Completed Task Details popup, with `No deadline` when the task has no deadline.
+- Added `actual_started_at`, `actual_completed_at`, and `completed_date` support in the schema.
+- Updated flexible task timing so actual duration is calculated from the real start action to the real finish action.
+- Daily Evaluation and Progress planned-vs-actual calculations now use the saved actual duration.
 
 ### 2026-05-24
 - Updated Task Breakdown so subtasks are generated dynamically by the Python AI service when a task starts.

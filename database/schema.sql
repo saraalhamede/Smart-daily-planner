@@ -73,6 +73,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   fixed_start_time TIME,
   fixed_end_time TIME,
   completed_on DATE,
+  completed_date DATE,
   completed_at DATETIME,
   actual_duration_minutes INT,
   removed_at DATETIME,
@@ -108,7 +109,9 @@ CREATE TABLE IF NOT EXISTS schedule_items (
   reason TEXT,
   status VARCHAR(30) NOT NULL DEFAULT 'waiting',
   started_at DATETIME,
+  actual_started_at DATETIME,
   completed_at DATETIME,
+  actual_completed_at DATETIME,
   restored_at DATETIME,
   removed_at DATETIME,
   actual_duration_minutes INT,
@@ -117,6 +120,51 @@ CREATE TABLE IF NOT EXISTS schedule_items (
   FOREIGN KEY (schedule_id) REFERENCES schedules(schedule_id) ON DELETE CASCADE,
   FOREIGN KEY (task_id) REFERENCES tasks(task_id) ON DELETE CASCADE
 );
+
+SET @add_tasks_completed_date := (
+  SELECT IF(
+    COUNT(*) = 0,
+    'ALTER TABLE tasks ADD COLUMN completed_date DATE AFTER completed_on',
+    'SELECT 1'
+  )
+  FROM INFORMATION_SCHEMA.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE()
+    AND TABLE_NAME = 'tasks'
+    AND COLUMN_NAME = 'completed_date'
+);
+PREPARE add_tasks_completed_date_stmt FROM @add_tasks_completed_date;
+EXECUTE add_tasks_completed_date_stmt;
+DEALLOCATE PREPARE add_tasks_completed_date_stmt;
+
+SET @add_schedule_items_actual_started_at := (
+  SELECT IF(
+    COUNT(*) = 0,
+    'ALTER TABLE schedule_items ADD COLUMN actual_started_at DATETIME AFTER started_at',
+    'SELECT 1'
+  )
+  FROM INFORMATION_SCHEMA.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE()
+    AND TABLE_NAME = 'schedule_items'
+    AND COLUMN_NAME = 'actual_started_at'
+);
+PREPARE add_schedule_items_actual_started_at_stmt FROM @add_schedule_items_actual_started_at;
+EXECUTE add_schedule_items_actual_started_at_stmt;
+DEALLOCATE PREPARE add_schedule_items_actual_started_at_stmt;
+
+SET @add_schedule_items_actual_completed_at := (
+  SELECT IF(
+    COUNT(*) = 0,
+    'ALTER TABLE schedule_items ADD COLUMN actual_completed_at DATETIME AFTER completed_at',
+    'SELECT 1'
+  )
+  FROM INFORMATION_SCHEMA.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE()
+    AND TABLE_NAME = 'schedule_items'
+    AND COLUMN_NAME = 'actual_completed_at'
+);
+PREPARE add_schedule_items_actual_completed_at_stmt FROM @add_schedule_items_actual_completed_at;
+EXECUTE add_schedule_items_actual_completed_at_stmt;
+DEALLOCATE PREPARE add_schedule_items_actual_completed_at_stmt;
 
 CREATE TABLE IF NOT EXISTS task_subtasks (
   subtask_id VARCHAR(40) PRIMARY KEY,
