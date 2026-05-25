@@ -2186,6 +2186,7 @@ function DailyDetailsPage({
   const [editingItemId, setEditingItemId] = useState(null);
   const [editDraft, setEditDraft] = useState(null);
   const [activeTaskUi, setActiveTaskUi] = useState(() => buildActiveTaskUiFromItems(initializeDailyDetailItems({ day, schedule, items, tasks })));
+  const [dailyAiNotes, setDailyAiNotes] = useState([]);
   const [selectedCompletedItemId, setSelectedCompletedItemId] = useState(null);
   const [restoreMenuItemId, setRestoreMenuItemId] = useState(null);
   const [waitingTaskToRemove, setWaitingTaskToRemove] = useState(null);
@@ -2199,7 +2200,7 @@ function DailyDetailsPage({
     ? details.completedTasks.find((item) => getDetailItemId(item) === selectedCompletedItemId)
     : null;
   const dailyEvaluation = buildDailyEvaluation(details, activeTaskUi, latestLog);
-  const adviceNotes = buildDailyAdviceNotes(details.advice, aiNotes, dayKey);
+  const adviceNotes = buildDailyAdviceNotes(details.advice, mergeById(aiNotes, dailyAiNotes, 'note_id'), dayKey);
 
   useEffect(() => {
     const nextItems = initializeDailyDetailItems({ day, schedule, items, tasks });
@@ -2208,6 +2209,7 @@ function DailyDetailsPage({
     setEditingItemId(null);
     setEditDraft(null);
     setActiveTaskUi(buildActiveTaskUiFromItems(nextItems));
+    setDailyAiNotes([]);
     setSelectedCompletedItemId(null);
     setRestoreMenuItemId(null);
     setWaitingTaskToRemove(null);
@@ -2227,6 +2229,8 @@ function DailyDetailsPage({
         });
         setDetailItems(nextItems);
         setActiveTaskUi(buildActiveTaskUiFromItems(nextItems));
+        setDailyAiNotes(data.ai_notes || []);
+        onDataRefresh?.(data);
       })
       .catch((error) => {
         if (!isCancelled) {

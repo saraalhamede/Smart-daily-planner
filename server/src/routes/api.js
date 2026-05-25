@@ -7,6 +7,7 @@ import {
   createTask,
   deleteTaskResource,
   estimateTimeRequest,
+  generateAdviceRequest,
   getAiNotes,
   getCalendarMonth,
   getDailyCheckins,
@@ -95,6 +96,14 @@ apiRouter.post('/ai/generate-schedule', async (req, res, next) => {
 apiRouter.post('/ai/generate-subtasks', async (req, res, next) => {
   try {
     res.json(await generateSubtasksRequest(req.body));
+  } catch (error) {
+    next(error);
+  }
+});
+
+apiRouter.post('/ai/generate-advice', async (req, res, next) => {
+  try {
+    res.json(await generateAdviceRequest(req.body));
   } catch (error) {
     next(error);
   }

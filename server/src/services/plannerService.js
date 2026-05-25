@@ -953,6 +953,8 @@ async function saveScheduleNotes(userId, schedule, draft) {
       note_type: 'recommendation',
       title: 'Daily schedule advice',
       message: draft.schedule_note,
+      scope: 'daily',
+      priority: 3,
       source: 'rule_based'
     }
   ];
@@ -962,6 +964,8 @@ async function saveScheduleNotes(userId, schedule, draft) {
       note_type: 'time_management',
       title: 'No available task blocks',
       message: 'No schedule blocks could be generated. Check your planning window and task durations.',
+      scope: 'daily',
+      priority: 2,
       source: 'rule_based'
     });
   }
@@ -975,6 +979,260 @@ async function saveScheduleNotes(userId, schedule, draft) {
     ...note,
     created_at: new Date().toISOString()
   })));
+}
+
+async function ensureAdviceNotes(context) {
+  if (!context?.user_id || typeof store.listAiNotes !== 'function' || typeof store.insertAiNote !== 'function') {
+    return [];
+  }
+
+  const result = await generateAdviceWithAi(context);
+  const generatedNotes = normalizeGeneratedAdvice(result.advice, context);
+  if (generatedNotes.length === 0) return [];
+
+  const existingNotes = await store.listAiNotes(context.user_id);
+  const existingKeys = new Set(existingNotes.map(getAdviceDedupKey));
+  const notesToSave = generatedNotes.filter((note) => !existingKeys.has(getAdviceDedupKey(note)));
+  if (notesToSave.length === 0) return [];
+
+  const saved = await Promise.all(notesToSave.map((note) => store.insertAiNote(note)));
+  await insertIfSupported('insertAiPrediction', {
+    prediction_id: createId('pred'),
+    user_id: context.user_id,
+    related_schedule_id: context.schedule_id || null,
+    module_name: 'advice_generation',
+    model_name: result.model || null,
+    source: result.source || 'python_ai_service',
+    confidence: result.confidence ?? null,
+    input_json: context,
+    output_json: result,
+    created_at: new Date().toISOString()
+  });
+  return saved;
+}
+
+function buildDailyAdviceContext({ userId, date, schedule, items = [], tasks = [], dailyCheckin, feedback = [], dailyEvaluation }) {
+  const activeItems = items.filter((item) => item.status !== 'removed');
+  const completedItems = activeItems.filter((item) => item.status === 'completed');
+  const inProgressItem = activeItems.find((item) => item.status === 'in_progress') || null;
+  const waitingItems = activeItems.filter((item) => item.status === 'waiting' || item.status === 'overdue');
+  const scheduledTaskIds = new Set(activeItems.map((item) => item.task_id).filter(Boolean));
+  const visibleTasks = tasks.filter((task) => isTaskVisibleOnDate(task, date));
+  const unscheduledTasks = visibleTasks.filter((task) => !scheduledTaskIds.has(task.task_id) && !isTaskComplete(task));
+  const deadlineTasks = visibleTasks
+    .filter((task) => task.deadline && !isTaskComplete(task))
+    .map((task) => mapTaskForAdvice(task, date))
+    .sort((a, b) => (a.days_left ?? 9999) - (b.days_left ?? 9999));
+
+  const completedTaskCount = Math.max(
+    completedItems.length,
+    visibleTasks.filter((task) => isTaskComplete(task)).length
+  );
+  const unfinishedTaskCount = waitingItems.length + (inProgressItem ? 1 : 0) + unscheduledTasks.length;
+
+  return {
+    user_id: userId,
+    date,
+    related_date: date,
+    scope: 'daily',
+    schedule_id: schedule?.schedule_id || null,
+    daily_checkin: dailyCheckin || null,
+    mood_level: dailyCheckin?.mood_level ?? null,
+    energy_level: dailyCheckin?.predicted_energy_level || dailyCheckin?.energy_level || null,
+    stress_level: dailyCheckin?.stress_level ?? null,
+    sleep_hours: dailyCheckin?.sleep_hours ?? null,
+    completed_tasks_count: completedTaskCount,
+    unfinished_tasks_count: unfinishedTaskCount,
+    productivity_score: dailyEvaluation?.productivity_score ?? estimateProductivityScore(completedTaskCount, unfinishedTaskCount),
+    waiting_tasks: [
+      ...waitingItems.map(mapScheduleItemForAdvice),
+      ...unscheduledTasks.map((task) => mapTaskForAdvice(task, date))
+    ],
+    completed_tasks: completedItems.map(mapScheduleItemForAdvice),
+    unfinished_tasks: unscheduledTasks.map((task) => mapTaskForAdvice(task, date)),
+    deadline_tasks: deadlineTasks,
+    current_task_status: inProgressItem ? mapScheduleItemForAdvice(inProgressItem) : null,
+    task_feedback: feedback,
+    feedback_summary: buildFeedbackSummary(feedback, tasks, items)
+  };
+}
+
+function buildPeriodAdviceContext({ userId, period, startDate, dailyLogs = [], feedback = [], dailyEvaluations = [], tasks = [], scheduleItems = [] }) {
+  const filteredLogs = dailyLogs.filter((log) => dateOnly(log.log_date || log.created_at) >= startDate);
+  const filteredFeedback = feedback.filter((item) => dateOnly(item.created_at) >= startDate);
+  const filteredEvaluations = dailyEvaluations.filter((evaluation) => dateOnly(evaluation.evaluation_date) >= startDate);
+  const filteredItems = scheduleItems.filter((item) => dateOnly(item.start_time || item.created_at) >= startDate);
+  const filteredTasks = tasks.filter((task) => (dateOnly(task.completed_on || task.completed_at || task.task_date || task.created_at) || todayKey()) >= startDate);
+  const completedTasks = filteredTasks.filter(isTaskComplete);
+  const unfinishedTasks = filteredTasks.filter((task) => !isTaskComplete(task) && !['removed', 'deleted', 'cancelled'].includes(String(task.status || '').toLowerCase()));
+  const averageProductivity = averageNumber(filteredEvaluations.map((evaluation) => evaluation.productivity_score));
+
+  return {
+    user_id: userId,
+    date: todayKey(),
+    related_date: todayKey(),
+    period,
+    scope: normalizeAdviceScope(period),
+    start_date: startDate,
+    daily_checkins: filteredLogs,
+    daily_logs: filteredLogs,
+    daily_evaluations: filteredEvaluations,
+    task_feedback: enrichFeedbackForAdvice(filteredFeedback, tasks, scheduleItems),
+    schedule_items: filteredItems,
+    tasks: filteredTasks,
+    completed_tasks_count: completedTasks.length,
+    unfinished_tasks_count: unfinishedTasks.length,
+    productivity_score: averageProductivity === null ? null : Math.round(averageProductivity),
+    feedback_summary: buildFeedbackSummary(filteredFeedback, tasks, scheduleItems)
+  };
+}
+
+function normalizeGeneratedAdvice(advice, context) {
+  if (!Array.isArray(advice)) return [];
+  return advice
+    .map((note) => {
+      const title = String(note?.title || '').trim();
+      const message = String(note?.message || '').trim();
+      if (!title || !message) return null;
+      return {
+        note_id: createId('note'),
+        user_id: context.user_id,
+        note_date: dateOnly(note.related_date || context.related_date || context.date) || todayKey(),
+        schedule_id: context.schedule_id || null,
+        related_task_id: note.related_task_id || null,
+        note_type: String(note.advice_type || note.note_type || 'recommendation').slice(0, 40),
+        title: title.slice(0, 160),
+        message,
+        scope: normalizeAdviceScope(note.scope || context.scope),
+        priority: clampNumber(parseInteger(note.priority, 3), 1, 5),
+        source: 'ai_model',
+        created_at: new Date().toISOString()
+      };
+    })
+    .filter(Boolean);
+}
+
+function buildFeedbackSummary(feedback = [], tasks = [], scheduleItems = []) {
+  const taskById = new Map(tasks.map((task) => [task.task_id, task]));
+  const itemById = new Map(scheduleItems.map((item) => [item.schedule_item_id, item]));
+  const enriched = enrichFeedbackForAdvice(feedback, tasks, scheduleItems);
+  const overruns = enriched.filter((item) => item.actual_duration_minutes && item.planned_duration_minutes && item.actual_duration_minutes > item.planned_duration_minutes * 1.25);
+  const latestOverrun = overruns[overruns.length - 1] || null;
+  const relatedTask = latestOverrun ? taskById.get(latestOverrun.task_id) : null;
+  const relatedItem = latestOverrun ? itemById.get(latestOverrun.schedule_item_id) : null;
+
+  return {
+    feedback_count: feedback.length,
+    completed_feedback_count: feedback.filter((item) => item.completed || item.outcome === 'completed').length,
+    overrun_count: overruns.length,
+    latest_overrun_task: relatedTask?.title || relatedItem?.title || null,
+    latest_overrun_task_id: latestOverrun?.task_id || null,
+    comments: feedback.map((item) => item.comment).filter(Boolean).slice(-3)
+  };
+}
+
+function enrichFeedbackForAdvice(feedback = [], tasks = [], scheduleItems = []) {
+  const taskById = new Map(tasks.map((task) => [task.task_id, task]));
+  const itemById = new Map(scheduleItems.map((item) => [item.schedule_item_id, item]));
+  return feedback.map((item) => {
+    const task = taskById.get(item.task_id);
+    const scheduleItem = itemById.get(item.schedule_item_id);
+    return {
+      ...item,
+      title: task?.title || scheduleItem?.title || null,
+      planned_duration_minutes: getPlannedDurationMinutes(task, scheduleItem)
+    };
+  });
+}
+
+function mapScheduleItemForAdvice(item) {
+  return {
+    task_id: item.task_id || null,
+    schedule_item_id: item.schedule_item_id || null,
+    title: item.title,
+    category: item.category || item.task?.category || null,
+    status: item.status,
+    priority_level: item.priority_level || item.task?.priority_level || null,
+    difficulty_level: item.difficulty_level || item.task?.difficulty_level || null,
+    task_kind: item.task_kind,
+    start_time: item.start_time,
+    end_time: item.end_time,
+    planned_duration_minutes: getDurationMinutes(item.start_time, item.end_time),
+    actual_duration_minutes: parseOptionalInteger(item.actual_duration_minutes),
+    progress_percentage: getSubtaskProgress(item)
+  };
+}
+
+function mapTaskForAdvice(task, date) {
+  return {
+    task_id: task.task_id,
+    title: task.title,
+    category: task.category || null,
+    status: task.status,
+    priority_level: task.priority_level || null,
+    difficulty_level: task.difficulty_level || null,
+    estimated_duration_minutes: parseOptionalInteger(task.estimated_duration_minutes),
+    deadline: task.deadline || null,
+    days_left: task.deadline ? daysBetween(date, dateOnly(task.deadline)) : null
+  };
+}
+
+function getSubtaskProgress(item) {
+  const subtasks = Array.isArray(item.subtasks) ? item.subtasks : [];
+  if (subtasks.length === 0) return null;
+  const completed = subtasks.filter((subtask) => Boolean(subtask.is_completed)).length;
+  return Math.round((completed / subtasks.length) * 100);
+}
+
+function getPlannedDurationMinutes(task, scheduleItem) {
+  const scheduleDuration = scheduleItem ? getDurationMinutes(scheduleItem.start_time, scheduleItem.end_time) : 0;
+  return scheduleDuration || parseOptionalInteger(task?.estimated_duration_minutes) || null;
+}
+
+function estimateProductivityScore(completedCount, unfinishedCount) {
+  const total = completedCount + unfinishedCount;
+  if (total === 0) return null;
+  return Math.round((completedCount / total) * 100);
+}
+
+function isTaskComplete(task) {
+  return Boolean(task?.is_completed) || task?.status === 'completed';
+}
+
+function normalizeAdviceScope(scope) {
+  const value = String(scope || 'daily').toLowerCase();
+  if (['daily', 'weekly', 'monthly', 'task'].includes(value)) return value;
+  return value === 'week' ? 'weekly' : 'daily';
+}
+
+function getAdviceDedupKey(note) {
+  return [
+    dateOnly(note.note_date || note.created_at),
+    note.scope || 'daily',
+    note.note_type || 'recommendation',
+    note.related_task_id || '',
+    note.title || '',
+    note.message || ''
+  ].join('|');
+}
+
+function averageNumber(values) {
+  const numbers = values
+    .map((value) => Number.parseFloat(value))
+    .filter((value) => !Number.isNaN(value));
+  if (numbers.length === 0) return null;
+  return numbers.reduce((sum, value) => sum + value, 0) / numbers.length;
+}
+
+function daysBetween(startDate, endDate) {
+  const start = new Date(`${dateOnly(startDate) || todayKey()}T00:00:00`);
+  const end = new Date(`${dateOnly(endDate) || todayKey()}T00:00:00`);
+  if (!isValidDate(start) || !isValidDate(end)) return null;
+  return Math.max(0, Math.round((end - start) / 86400000));
+}
+
+function clampNumber(value, minimum, maximum) {
+  return Math.max(minimum, Math.min(maximum, value));
 }
 
 async function persistMoodAiOutputs(savedCheckin, input, analysis) {

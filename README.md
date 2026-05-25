@@ -575,6 +575,7 @@ Current Python AI endpoints:
 - `POST /ai/estimate-time`
 - `POST /ai/generate-schedule`
 - `POST /ai/generate-subtasks`
+- `POST /ai/generate-advice`
 
 Current backend proxy/support endpoints:
 
@@ -583,6 +584,7 @@ Current backend proxy/support endpoints:
 - `POST /api/ai/estimate-time`
 - `POST /api/ai/generate-schedule`
 - `POST /api/ai/generate-subtasks`
+- `POST /api/ai/generate-advice`
 
 Current AI implementation mode:
 
@@ -605,6 +607,7 @@ AI modules currently scaffolded:
 - Time estimation
 - Scheduler support hints
 - Subtask generation for Task Breakdown
+- Personalized advice generation for existing AI Notes sections
 
 AI outputs are saved in MySQL when used by real planner actions.
 
@@ -616,6 +619,22 @@ New AI database tables:
 - recommendations
 - scheduling_results
 
+AI advice is saved in the existing `ai_notes` table.
+
+Important `ai_notes` fields:
+
+- `note_id`
+- `user_id`
+- `note_date`
+- `note_type`
+- `title`
+- `message`
+- `scope`
+- `priority`
+- `related_task_id`
+- `source`
+- `created_at`
+
 Task Breakdown update:
 
 - The Task In Progress checklist is no longer hardcoded.
@@ -625,6 +644,30 @@ Task Breakdown update:
 - The UI displays the saved subtasks as checkboxes.
 - Progress is calculated as completed subtasks divided by total subtasks.
 - Checking a subtask updates `task_subtasks.is_completed` in MySQL.
+
+AI Advice update:
+
+- No new AI Notes page was created.
+- The existing sidebar AI Notes section loads broad daily/weekly/monthly recommendations from the backend.
+- The existing Daily Details `AI Notes & Advice` container loads advice for the selected day.
+- The backend collects real context from MySQL before generating advice:
+  - daily check-in
+  - mood level
+  - energy level
+  - stress level
+  - sleep hours
+  - waiting tasks
+  - in-progress task
+  - completed tasks
+  - unfinished tasks
+  - productivity score
+  - task feedback
+  - deadline tasks
+- The backend sends that context to the Python AI service endpoint `POST /ai/generate-advice`.
+- The Python service returns advice messages with `advice_type`, `title`, `message`, `priority`, `scope`, `related_date`, and optional `related_task_id`.
+- The backend saves advice into `ai_notes` with `source = ai_model`.
+- If Python is offline, the backend uses a safe Node rule-based fallback so the UI still works.
+- Duplicate advice is skipped when the same saved note already exists for the same date, scope, type, task, title, and message.
 
 ### MySQL Database
 
@@ -798,6 +841,7 @@ Daily Details:
 AI Notes:
 
 - `GET /api/ai-notes?userId=&period=`
+- `POST /api/ai/generate-advice`
 
 Progress:
 
@@ -944,6 +988,17 @@ http://127.0.0.1:3000
 - Python AI service integration is intentionally left for a later phase.
 
 ## Development Change Log
+
+### 2026-05-25
+- Added Python AI advice endpoint `POST /ai/generate-advice`.
+- Added backend proxy endpoint `POST /api/ai/generate-advice`.
+- Connected the existing sidebar AI Notes section to generate and save broader advice from real MySQL data.
+- Connected the existing Daily Details `AI Notes & Advice` container to generate and display selected-day advice.
+- Added `scope` and `priority` fields to `ai_notes`.
+- The backend now builds advice context from daily check-ins, task progress, feedback, daily evaluations, deadlines, and current task state.
+- Saved generated advice into `ai_notes` with `source = ai_model`.
+- Added duplicate protection so opening AI Notes or Daily Details does not keep inserting the same advice.
+- Kept the scheduler final decisions rule-based; AI advice remains supportive.
 
 ### 2026-05-24
 - Updated Task Breakdown so subtasks are generated dynamically by the Python AI service when a task starts.
