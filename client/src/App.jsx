@@ -2275,11 +2275,6 @@ function DailyDetailsPage({
       return;
     }
 
-    if (!item.schedule_item_id) {
-      setNotice('This deadline task is visible for planning, but it needs a generated schedule block before it can be started.');
-      return;
-    }
-
     const activeTask = detailItems.find((detailItem) => detailItem.status === 'in_progress' && !isBreakScheduleItem(detailItem));
     if (activeTask && getDetailItemId(activeTask) !== getDetailItemId(item)) {
       setNotice('Finish or return the current task before starting another one.');
@@ -2288,14 +2283,22 @@ function DailyDetailsPage({
 
     try {
       const startedAt = new Date().toISOString();
-      const result = await plannerApi.updateScheduleItemStatus(item.schedule_item_id, {
-        status: 'in_progress',
-        started_at: startedAt,
-        actual_started_at: startedAt
-      });
+      const result = item.schedule_item_id
+        ? await plannerApi.updateScheduleItemStatus(item.schedule_item_id, {
+            status: 'in_progress',
+            started_at: startedAt,
+            actual_started_at: startedAt
+          })
+        : await plannerApi.startTaskOnDate(item.task_id, {
+            user_id: userId,
+            date: dayKey,
+            status: 'in_progress',
+            started_at: startedAt,
+            actual_started_at: startedAt
+          });
       applyScheduleItemResult(result);
       await onDataRefresh?.();
-      setNotice('Task moved to In Progress.');
+      setNotice(item.schedule_item_id ? 'Task moved to In Progress.' : 'Deadline task scheduled and moved to In Progress.');
     } catch (error) {
       setNotice(error.message);
     }

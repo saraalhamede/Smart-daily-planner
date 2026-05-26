@@ -28,6 +28,7 @@ import {
   registerUser,
   removeTask,
   saveUserPreferences,
+  startTaskOnDate,
   submitFeedback,
   updateScheduleItemStatus,
   updateSubtask,
@@ -203,6 +204,14 @@ apiRouter.post('/tasks', async (req, res, next) => {
 apiRouter.put('/tasks/:taskId', async (req, res, next) => {
   try {
     res.json({ task: await updateTask(req.params.taskId, req.body) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+apiRouter.post('/tasks/:taskId/start', async (req, res, next) => {
+  try {
+    res.status(201).json(await startTaskOnDate(req.params.taskId, req.body));
   } catch (error) {
     next(error);
   }

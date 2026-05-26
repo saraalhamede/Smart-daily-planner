@@ -603,6 +603,68 @@ export async function updateTask(taskId, input) {
   return updated;
 }
 
+export async function startTaskOnDate(taskId, input = {}) {
+  const userId = input.user_id || 'user_demo';
+  const date = dateOnly(input.date || input.schedule_date || todayKey());
+  assertWritableDay(date);
+
+  const task = await store.getTask(taskId);
+  if (!task || task.user_id !== userId) throw createHttpError(404, 'Task not found.');
+  if (isBreakScheduleItem(task)) throw createHttpError(400, 'Breaks cannot be started like tasks.');
+  if (task.is_fixed_time) throw createHttpError(400, 'Fixed-time tasks start automatically at their scheduled time.');
+  if (isTaskComplete(task)) throw createHttpError(400, 'This task is already completed.');
+  if (!isTaskVisibleOnDate(task, date)) {
+    throw createHttpError(400, 'This task is not available on the selected day.');
+  }
+
+  const existingItems = await store.listScheduleItemsForDate(userId, date);
+  const existingItem = existingItems.find((item) => item.task_id === taskId && item.status !== 'removed');
+  if (existingItem) {
+    return updateScheduleItemStatus(existingItem.schedule_item_id, {
+      status: 'in_progress',
+      started_at: input.started_at,
+      actual_started_at: input.actual_started_at || input.started_at
+    });
+  }
+
+  const activeItem = existingItems.find((item) => item.status === 'in_progress' && !isBreakScheduleItem(item));
+  if (activeItem) {
+    throw createHttpError(409, 'Finish or return the current task before starting another one.');
+  }
+
+  const startedAt = normalizeDateTimeInput(input.actual_started_at || input.started_at) || new Date().toISOString();
+  const plannedStart = buildScheduleTimeOnDate(date, startedAt);
+  const durationMinutes = Math.max(15, parseInteger(task.remaining_duration_minutes || task.estimated_duration_minutes, 30));
+  const plannedEnd = addMinutes(plannedStart, durationMinutes).toISOString();
+  const dailyLogs = await store.listDailyLogs(userId);
+  const dailyLog = dailyLogs.find((log) => dateOnly(log.log_date || log.checkin_date) === date) || null;
+
+  const draft = {
+    schedule_date: date,
+    schedule_note: 'Manual schedule block created because the user chose to work on this deadline task before its deadline.',
+    items: [{
+      task_id: task.task_id,
+      title: task.title,
+      category: task.category || null,
+      difficulty_level: task.difficulty_level || null,
+      priority_level: task.priority_level || null,
+      start_time: plannedStart,
+      end_time: plannedEnd,
+      energy_slot: 'manual',
+      task_kind: 'flexible',
+      reason: 'Started manually before the deadline.'
+    }]
+  };
+
+  const saved = await saveSchedule(userId, dailyLog?.log_id || null, draft, 'manual');
+  const createdItem = saved.items.find((item) => item.task_id === taskId) || saved.items[0];
+  return updateScheduleItemStatus(createdItem.schedule_item_id, {
+    status: 'in_progress',
+    started_at: startedAt,
+    actual_started_at: startedAt
+  });
+}
+
 export async function removeTask(taskId) {
   const task = await store.getTask(taskId);
   if (!task) throw createHttpError(404, 'Task not found.');
@@ -1983,6 +2045,23 @@ function dateOnly(value) {
   if (!value) return null;
   if (value instanceof Date) return formatDateKey(value);
   return String(value).slice(0, 10);
+}
+
+function buildScheduleTimeOnDate(dayKey, timeSource) {
+  const source = new Date(timeSource);
+  if (!isValidDate(source)) return `${dayKey}T09:00:00`;
+  return new Date(`${dayKey}T${[
+    String(source.getHours()).padStart(2, '0'),
+    String(source.getMinutes()).padStart(2, '0'),
+    String(source.getSeconds()).padStart(2, '0')
+  ].join(':')}`).toISOString();
+}
+
+function addMinutes(value, minutes) {
+  const date = new Date(value);
+  if (!isValidDate(date)) return new Date();
+  date.setMinutes(date.getMinutes() + minutes);
+  return date;
 }
 
 function calculateActualDurationFromItem(item, completedAt) {
