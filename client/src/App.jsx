@@ -3053,7 +3053,7 @@ function CompletedTaskCard({ item, isRestoreOpen, onOpen, onToggleRestore, onRes
   const evaluation = buildCompletedTaskEvaluation(item);
 
   return (
-    <article className="completed-task-card">
+    <article className={`completed-task-card ${isRestoreOpen ? 'restore-open' : ''}`}>
       <button className="completed-task-open" type="button" onClick={onOpen}>
         <div className="completed-task-main">
           <div>
