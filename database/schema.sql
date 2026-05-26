@@ -97,7 +97,7 @@ CREATE TABLE IF NOT EXISTS schedules (
 CREATE TABLE IF NOT EXISTS schedule_items (
   schedule_item_id VARCHAR(40) PRIMARY KEY,
   schedule_id VARCHAR(40) NOT NULL,
-  task_id VARCHAR(40) NOT NULL,
+  task_id VARCHAR(40),
   title VARCHAR(180) NOT NULL,
   category VARCHAR(80),
   difficulty_level TINYINT,
@@ -118,8 +118,37 @@ CREATE TABLE IF NOT EXISTS schedule_items (
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   FOREIGN KEY (schedule_id) REFERENCES schedules(schedule_id) ON DELETE CASCADE,
-  FOREIGN KEY (task_id) REFERENCES tasks(task_id) ON DELETE CASCADE
+  FOREIGN KEY (task_id) REFERENCES tasks(task_id) ON DELETE SET NULL
 );
+
+SET @schedule_items_task_fk := (
+  SELECT CONSTRAINT_NAME
+  FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE
+  WHERE TABLE_SCHEMA = DATABASE()
+    AND TABLE_NAME = 'schedule_items'
+    AND COLUMN_NAME = 'task_id'
+    AND REFERENCED_TABLE_NAME = 'tasks'
+  LIMIT 1
+);
+SET @drop_schedule_items_task_fk := IF(
+  @schedule_items_task_fk IS NULL,
+  'SELECT 1',
+  CONCAT('ALTER TABLE schedule_items DROP FOREIGN KEY `', @schedule_items_task_fk, '`')
+);
+PREPARE drop_schedule_items_task_fk_stmt FROM @drop_schedule_items_task_fk;
+EXECUTE drop_schedule_items_task_fk_stmt;
+DEALLOCATE PREPARE drop_schedule_items_task_fk_stmt;
+
+ALTER TABLE schedule_items MODIFY task_id VARCHAR(40) NULL;
+
+SET @add_schedule_items_task_fk := IF(
+  @schedule_items_task_fk IS NULL,
+  'ALTER TABLE schedule_items ADD FOREIGN KEY (task_id) REFERENCES tasks(task_id) ON DELETE SET NULL',
+  CONCAT('ALTER TABLE schedule_items ADD CONSTRAINT `', @schedule_items_task_fk, '` FOREIGN KEY (task_id) REFERENCES tasks(task_id) ON DELETE SET NULL')
+);
+PREPARE add_schedule_items_task_fk_stmt FROM @add_schedule_items_task_fk;
+EXECUTE add_schedule_items_task_fk_stmt;
+DEALLOCATE PREPARE add_schedule_items_task_fk_stmt;
 
 SET @add_tasks_completed_date := (
   SELECT IF(

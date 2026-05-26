@@ -164,23 +164,11 @@ function fallbackScheduleHints(payload, error) {
 }
 
 function fallbackSubtasks(payload, error) {
-  const description = String(payload.description || '');
-  const pieces = description
-    .split(/[.;,]|\band\b/i)
-    .map((piece) => piece.trim().replace(/^(then|also|to)\s+/i, ''))
-    .filter((piece) => piece.length > 3)
-    .slice(0, 5);
-  const fallbackPieces = pieces.length > 0
-    ? pieces
-    : [
-        `Review ${payload.title || 'task'} requirements`,
-        'Complete the main work',
-        'Review and finalize'
-      ];
+  const fallbackPieces = buildFallbackSubtaskPlan(payload);
   return {
     module: 'subtask_generation',
     source: 'node_rule_based_fallback',
-    model: 'local_action_extractor',
+    model: 'local_ai_style_planner',
     subtasks: fallbackPieces.map((title, index) => ({
       title: title.charAt(0).toUpperCase() + title.slice(1),
       order_index: index + 1
@@ -188,6 +176,67 @@ function fallbackSubtasks(payload, error) {
     confidence: 0.45,
     fallback_reason: error.message
   };
+}
+
+function buildFallbackSubtaskPlan(payload) {
+  const title = String(payload.title || 'the task').trim();
+  const category = String(payload.category || payload.task_category || '').toLowerCase();
+  const description = String(payload.description || payload.task_description || '').toLowerCase();
+  const signals = `${title} ${category} ${description}`.toLowerCase();
+  const difficulty = parseInteger(payload.difficulty_level, 3);
+  const duration = parseInteger(payload.estimated_duration_minutes, 60);
+
+  if (category === 'coding' || hasAny(signals, ['code', 'api', 'database', 'backend', 'frontend', 'bug', 'server'])) {
+    return [
+      `Review requirements and current behavior for ${title}`,
+      'Identify the files and data affected by the change',
+      'Implement the main logic update',
+      'Test the updated behavior with realistic data',
+      'Clean up and finalize the change'
+    ];
+  }
+  if (category === 'writing' || hasAny(signals, ['write', 'essay', 'report', 'notes', 'document', 'article'])) {
+    const steps = [
+      `Outline the main sections for ${title}`,
+      'Draft the key content in a clear order',
+      'Revise wording, structure, and missing details',
+      'Proofread and prepare the final version'
+    ];
+    if (difficulty >= 4 || duration >= 75) steps.splice(1, 0, 'Collect the references or examples needed');
+    return steps;
+  }
+  if (category === 'study' || hasAny(signals, ['study', 'exam', 'lecture', 'chapter', 'homework'])) {
+    const steps = [
+      `Review the goal and material for ${title}`,
+      'Work through the most important examples',
+      'Summarize the key ideas in your own words',
+      'Check understanding with practice or recall'
+    ];
+    if (difficulty >= 4) steps.splice(2, 0, 'Mark confusing points for extra review');
+    return steps;
+  }
+  if (hasAny(signals, ['poster', 'design', 'layout', 'presentation', 'slide'])) {
+    const steps = ['Review the current layout and final requirements'];
+    if (hasAny(signals, ['ai', 'model', 'models'])) steps.push('Update the AI models section with clear model types');
+    if (hasAny(signals, ['duplicate', 'duplicated', 'unnecessary', 'repeated'])) steps.push('Remove duplicated or unnecessary text');
+    steps.push('Improve visual spacing, alignment, and hierarchy');
+    steps.push(hasAny(signals, ['export', 'pdf', 'final']) ? 'Export and verify final PDF quality' : 'Review the final design for consistency');
+    return steps;
+  }
+
+  const steps = [
+    `Review the goal and expected result for ${title}`,
+    'Prepare the needed materials or workspace',
+    'Complete the highest-priority part first',
+    'Check quality and fix any issues'
+  ];
+  if (difficulty >= 4 || duration >= 75) steps.splice(2, 0, 'Break the main work into smaller checkpoints');
+  if (duration <= 30 && difficulty <= 2) return [steps[0], 'Complete the main action', 'Review the result'];
+  return [...steps, 'Finalize and save the result'];
+}
+
+function hasAny(value, keywords) {
+  return keywords.some((keyword) => value.includes(keyword));
 }
 
 function fallbackAdvice(payload, error) {

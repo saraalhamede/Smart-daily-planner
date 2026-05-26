@@ -11,7 +11,7 @@ export function generateDailySchedule({
   feedbackContext
 }) {
   const targetDate = scheduleDate || dailyLog?.log_date || new Date().toISOString().slice(0, 10);
-  const planningStart = rescheduleFrom
+  const requestedPlanningStart = rescheduleFrom
     ? new Date(rescheduleFrom)
     : combineDateAndTime(
         targetDate,
@@ -21,6 +21,7 @@ export function generateDailySchedule({
     targetDate,
     dailyLog?.planning_end || preferences?.sleep_time || preferences?.preferred_study_end || '22:30'
   );
+  const planningStart = getEffectivePlanningStart(targetDate, requestedPlanningStart, planningEnd);
   const basePredictedEnergy = dailyLog?.predicted_energy_level || dailyLog?.energy_level || 3;
   const rescheduleEnergy = adjustEnergyFromFeedback(basePredictedEnergy, feedbackContext);
   const breakMinutes = chooseBreakMinutes(preferences?.break_duration_minutes || 10, feedbackContext);
@@ -33,7 +34,7 @@ export function generateDailySchedule({
       dateOnly(task.fixed_date) === targetDate
     ))
     .map((task) => normalizeFixedTask(task, targetDate, planningStart))
-    .filter((task) => new Date(task.end_time) > planningStart)
+    .filter((task) => new Date(task.start_time) >= planningStart && new Date(task.end_time) > planningStart)
     .sort((a, b) => new Date(a.start_time) - new Date(b.start_time));
 
   const freeSegments = buildFreeSegments(
@@ -91,7 +92,26 @@ export function generateDailySchedule({
           reason: buildReason(task, rescheduleEnergy, feedbackContext)
         });
         task.remaining_minutes -= blockMinutes;
-        cursor = addMinutes(end, breakMinutes);
+        const remainingWorkExists = task.remaining_minutes > 0 ||
+          flexibleTasks.some((nextTask) => nextTask.task_id !== task.task_id && nextTask.remaining_minutes > 0);
+        const breakEnd = addMinutes(end, breakMinutes);
+        if (remainingWorkExists && breakEnd <= segment.end && Math.floor((segment.end - breakEnd) / 60000) >= 15) {
+          items.push({
+            task_id: null,
+            title: 'Break Time',
+            category: 'break',
+            difficulty_level: null,
+            start_time: end.toISOString(),
+            end_time: breakEnd.toISOString(),
+            energy_slot: 'break',
+            task_kind: 'break',
+            priority_level: null,
+            reason: 'Rest before the next task.'
+          });
+          cursor = breakEnd;
+        } else {
+          cursor = end;
+        }
       }
     }
   }
@@ -109,11 +129,10 @@ export function generateDailySchedule({
 function normalizeFixedTask(task, targetDate, planningStart) {
   const enriched = categorizeTask(task);
   const originalStart = combineDateAndTime(targetDate, task.fixed_start_time);
-  const start = originalStart < planningStart ? new Date(planningStart) : originalStart;
   return {
     ...task,
     ...enriched,
-    start_time: start.toISOString(),
+    start_time: originalStart.toISOString(),
     end_time: combineDateAndTime(targetDate, task.fixed_end_time).toISOString()
   };
 }
@@ -203,6 +222,7 @@ function deadlineUrgency(deadline) {
 }
 
 function shouldTaskAppearOnDate(task, targetDate) {
+  if (task.status === 'in_progress') return false;
   const taskDate = dateOnly(task.task_date);
   const startDate = taskDate || dateOnly(task.created_at);
   const deadlineDate = dateOnly(task.deadline);
@@ -216,6 +236,14 @@ function shouldTaskAppearOnDate(task, targetDate) {
   }
 
   return true;
+}
+
+function getEffectivePlanningStart(targetDate, requestedStart, planningEnd) {
+  const today = dateOnly(new Date());
+  if (targetDate !== today) return requestedStart;
+  const now = new Date();
+  if (now >= planningEnd) return planningEnd;
+  return now > requestedStart ? now : requestedStart;
 }
 
 function adjustEnergyFromFeedback(baseEnergy, feedbackContext) {

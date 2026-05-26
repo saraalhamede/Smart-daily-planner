@@ -685,6 +685,7 @@ export async function generateSchedule(input) {
   if (!context.dailyLog) {
     throw createHttpError(400, 'Please save a daily check-in before generating the schedule.');
   }
+  assertWritableDay(dateOnly(context.dailyLog.log_date));
 
   const dayTasks = context.tasks.filter((task) => shouldTaskBeAvailableForSchedule(task, context.dailyLog.log_date));
   if (dayTasks.length === 0) {
@@ -1017,7 +1018,7 @@ async function saveSchedule(userId, dailyLogId, draft, status, aiHints = null) {
   const items = draft.items.map((item) => ({
     schedule_item_id: createId('item'),
     schedule_id: schedule.schedule_id,
-    task_id: item.task_id,
+    task_id: item.task_id || null,
     title: item.title,
     category: item.category || null,
     difficulty_level: item.difficulty_level || null,
@@ -1027,11 +1028,14 @@ async function saveSchedule(userId, dailyLogId, draft, status, aiHints = null) {
     energy_slot: item.energy_slot,
     task_kind: item.task_kind,
     reason: item.reason,
-    status: 'waiting',
+    status: item.status || (item.task_kind === 'break' ? 'break' : 'waiting'),
     created_at: new Date().toISOString()
   }));
 
   const saved = await store.insertScheduleWithItems(schedule, items);
+  if (['active', 'rescheduled'].includes(status) && typeof store.archiveGeneratedSchedulesForDate === 'function') {
+    await store.archiveGeneratedSchedulesForDate(userId, draft.schedule_date, saved.schedule.schedule_id);
+  }
   await saveScheduleNotes(userId, saved.schedule, draft);
   await persistSchedulingAiOutputs(userId, saved.schedule, draft, aiHints);
   await saveDailyEvaluationForDate(userId, draft.schedule_date);
@@ -1874,11 +1878,11 @@ function deriveTaskDate(input) {
 }
 
 function shouldTaskBeAvailableForSchedule(task, targetDate) {
-  if (task.status === 'removed' || task.status === 'deleted' || task.is_completed) return false;
+  if (task.status === 'removed' || task.status === 'deleted' || task.status === 'in_progress' || task.is_completed) return false;
   if (task.is_fixed_time) return dateOnly(task.fixed_date) === targetDate;
   const startDate = dateOnly(task.task_date) || dateOnly(task.created_at);
   if (startDate && targetDate < startDate) return false;
-  return !task.deadline || targetDate <= dateOnly(task.deadline) || targetDate >= startDate;
+  return !task.deadline || targetDate <= dateOnly(task.deadline);
 }
 
 function isTaskVisibleOnDate(task, targetDate) {

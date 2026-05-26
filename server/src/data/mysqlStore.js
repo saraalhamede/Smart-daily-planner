@@ -319,7 +319,7 @@ export const mysqlStore = {
   async getScheduleByDate(userId, scheduleDate) {
     const row = await one(
       `SELECT * FROM schedules
-       WHERE user_id = :userId AND schedule_date = :scheduleDate
+       WHERE user_id = :userId AND schedule_date = :scheduleDate AND status <> 'replaced'
        ORDER BY generated_at DESC LIMIT 1`,
       { userId, scheduleDate }
     );
@@ -340,6 +340,8 @@ export const mysqlStore = {
        FROM schedule_items si
        INNER JOIN schedules s ON s.schedule_id = si.schedule_id
        WHERE s.user_id = :userId
+         AND s.status <> 'replaced'
+         AND si.status <> 'removed'
        ORDER BY si.start_time ASC`,
       { userId }
     );
@@ -351,11 +353,26 @@ export const mysqlStore = {
       `SELECT si.*
        FROM schedule_items si
        INNER JOIN schedules s ON s.schedule_id = si.schedule_id
-       WHERE s.user_id = :userId AND DATE(si.start_time) = :scheduleDate
+       WHERE s.user_id = :userId
+         AND DATE(si.start_time) = :scheduleDate
+         AND s.status <> 'replaced'
+         AND si.status <> 'removed'
        ORDER BY si.start_time ASC`,
       { userId, scheduleDate }
     );
     return hydrateScheduleItems(rows);
+  },
+
+  async archiveGeneratedSchedulesForDate(userId, scheduleDate, excludeScheduleId = null) {
+    await pool.execute(
+      `UPDATE schedules
+       SET status = 'replaced'
+       WHERE user_id = :userId
+         AND schedule_date = :scheduleDate
+         AND (:excludeScheduleId IS NULL OR schedule_id <> :excludeScheduleId)
+         AND status IN ('active', 'rescheduled')`,
+      { userId, scheduleDate, excludeScheduleId }
+    );
   },
 
   async getScheduleItem(scheduleItemId) {
