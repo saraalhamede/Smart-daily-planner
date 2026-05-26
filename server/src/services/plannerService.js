@@ -1042,6 +1042,7 @@ async function ensureAdviceNotes(context) {
 
 function buildDailyAdviceContext({ userId, date, schedule, items = [], tasks = [], dailyCheckin, feedback = [], dailyEvaluation }) {
   const breakItems = items.filter(isBreakScheduleItem);
+  const inferredBreaksCount = countScheduleFreeTimeGaps(items);
   const activeItems = items.filter((item) => item.status !== 'removed' && !isBreakScheduleItem(item));
   const completedItems = activeItems.filter((item) => item.status === 'completed');
   const inProgressItem = activeItems.find((item) => item.status === 'in_progress') || null;
@@ -1084,7 +1085,7 @@ function buildDailyAdviceContext({ userId, date, schedule, items = [], tasks = [
     unfinished_tasks: unscheduledTasks.map((task) => mapTaskForAdvice(task, date)),
     deadline_tasks: deadlineTasks,
     current_task_status: inProgressItem ? mapScheduleItemForAdvice(inProgressItem) : null,
-    breaks_count: breakItems.length,
+    breaks_count: breakItems.length + inferredBreaksCount,
     task_feedback: feedback,
     feedback_summary: buildFeedbackSummary(feedback, tasks, items)
   };
@@ -1293,18 +1294,31 @@ function isTaskComplete(task) {
 }
 
 function isBreakScheduleItem(item = {}) {
-  const kind = String(item.task_kind || '').trim().toLowerCase();
-  const category = String(item.category || item.task?.category || '').trim().toLowerCase();
-  const energySlot = String(item.energy_slot || '').trim().toLowerCase();
+  const kind = String(item.task_kind || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
+  const category = String(item.category || item.task?.category || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
+  const energySlot = String(item.energy_slot || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
   const title = String(item.title || '').trim().toLowerCase();
-  return (
-    kind === 'break' ||
-    category === 'break' ||
-    energySlot === 'break' ||
-    title === 'break' ||
-    title === 'short break' ||
-    title === 'rest break'
-  );
+  const values = [kind, category, energySlot];
+  return values.some((value) => ['break', 'free', 'free_time', 'empty', 'empty_time', 'rest', 'rest_period'].includes(value)) ||
+    ['break', 'break time', 'short break', 'rest break', 'free time', 'empty time', 'rest period'].includes(title);
+}
+
+function countScheduleFreeTimeGaps(items = []) {
+  const scheduleBlocks = items
+    .filter((item) => item.status !== 'removed')
+    .filter((item) => isValidDate(new Date(item.start_time)) && isValidDate(new Date(item.end_time)))
+    .sort((a, b) => new Date(a.start_time) - new Date(b.start_time));
+  let gapCount = 0;
+
+  for (let index = 0; index < scheduleBlocks.length - 1; index += 1) {
+    const currentEnd = new Date(scheduleBlocks[index].end_time);
+    const nextStart = new Date(scheduleBlocks[index + 1].start_time);
+    if (dateOnly(currentEnd) !== dateOnly(nextStart)) continue;
+    const gapMinutes = Math.round((nextStart - currentEnd) / 60000);
+    if (gapMinutes >= 10) gapCount += 1;
+  }
+
+  return gapCount;
 }
 
 function normalizeAdviceScope(scope) {

@@ -2849,11 +2849,11 @@ function DailyDetailsPage({
       <div className="daily-details-grid">
         <section className="daily-details-card waiting-card">
           <DailyDetailsCardHeader icon={ListChecks} eyebrow="Planned" title="Waiting Tasks" />
-          {details.waitingTasks.length === 0 ? (
+          {details.waitingFlowItems.length === 0 ? (
             <p className="no-results">No waiting tasks yet</p>
           ) : (
             <div className="detail-task-list">
-              {details.waitingTasks.map((item) => (
+              {details.waitingFlowItems.map((item) => (
                 <DailyDetailTaskCard
                   item={item}
                   key={getDetailItemId(item)}
@@ -2928,10 +2928,10 @@ function DailyDetailsPage({
                 <article className={`timeline-row ${isBreakScheduleItem(item) ? 'break' : item.status}`} key={getDetailItemId(item)}>
                   <time>{item.is_deadline_continuation ? 'Flexible' : formatTimeRange(item.start_time, item.end_time)}</time>
                   <div>
-                    <strong>{isBreakScheduleItem(item) ? 'Break' : item.title}</strong>
-                    <span>{isBreakScheduleItem(item) ? item.reason || 'Short recovery break' : item.reason || 'Planned schedule block'}</span>
+                    <strong>{isBreakScheduleItem(item) ? getNonTaskFlowTitle(item) : item.title}</strong>
+                    <span>{isBreakScheduleItem(item) ? item.reason || getNonTaskFlowSuggestion(item) : item.reason || 'Planned schedule block'}</span>
                     {item.deadline_label ? <small>{item.deadline_label} - {item.deadline_detail}</small> : null}
-                    <em>{isBreakScheduleItem(item) ? 'Break' : formatTaskStatus(item.status)}</em>
+                    <em>{isBreakScheduleItem(item) ? getNonTaskFlowTitle(item) : formatTaskStatus(item.status)}</em>
                   </div>
                 </article>
               ))}
@@ -3554,6 +3554,8 @@ function DailyDetailTaskCard({
 }) {
   const isBreak = isBreakScheduleItem(item);
   const isFixed = item.task_kind === 'fixed';
+  const flowTitle = getNonTaskFlowTitle(item);
+  const flowSuggestion = getNonTaskFlowSuggestion(item);
   const deadlineTone = item.deadline_tone ? `deadline-${item.deadline_tone}` : '';
   const statusTone = item.status === 'overdue' ? 'overdue' : '';
 
@@ -3569,14 +3571,26 @@ function DailyDetailTaskCard({
       ) : (
         <>
           <div>
-            <strong>{isBreak ? 'Break' : item.title}</strong>
-            <span>{isBreak ? 'Short recovery break' : item.is_deadline_continuation ? 'Flexible deadline task' : formatTimeRange(item.start_time, item.end_time)}</span>
+            <strong className={isBreak ? 'break-card-title' : undefined}>
+              {isBreak ? (
+                <>
+                  <Clock3 size={15} />
+                  {flowTitle}
+                </>
+              ) : item.title}
+            </strong>
+            <span>
+              {isBreak
+                ? `${formatTimeRange(item.start_time, item.end_time)} - ${formatDuration(item.start_time, item.end_time)}`
+                : item.is_deadline_continuation ? 'Flexible deadline task' : formatTimeRange(item.start_time, item.end_time)}
+            </span>
           </div>
           <div className="chip-line">
             {isBreak ? (
               <>
-                <span>break</span>
-                <span>Timeline only</span>
+                <span>{flowTitle}</span>
+                <span>Non-task</span>
+                <span>{formatDuration(item.start_time, item.end_time)}</span>
               </>
             ) : (
               <>
@@ -3587,6 +3601,12 @@ function DailyDetailTaskCard({
               </>
             )}
           </div>
+          {isBreak ? (
+            <div className="break-suggestion">
+              <Sparkles size={14} />
+              <span>{flowSuggestion}</span>
+            </div>
+          ) : null}
           {item.deadline_label ? (
             <div className={`deadline-reminder ${item.deadline_tone || ''}`}>
               <strong>{item.deadline_label}</strong>
@@ -4905,18 +4925,47 @@ function isTaskArchived(task) {
 }
 
 function isBreakScheduleItem(item = {}) {
-  const kind = String(item.task_kind || '').trim().toLowerCase();
-  const category = String(item.category || item.task?.category || '').trim().toLowerCase();
-  const energySlot = String(item.energy_slot || '').trim().toLowerCase();
+  return Boolean(getNonTaskFlowKind(item));
+}
+
+function getNonTaskFlowKind(item = {}) {
+  const kind = String(item.task_kind || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
+  const category = String(item.category || item.task?.category || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
+  const energySlot = String(item.energy_slot || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
   const title = String(item.title || '').trim().toLowerCase();
+  const values = [kind, category, energySlot];
+
+  if (values.some((value) => ['free', 'free_time', 'empty', 'empty_time'].includes(value)) || ['free time', 'empty time'].includes(title)) {
+    return 'free_time';
+  }
+  if (values.some((value) => ['rest', 'rest_period'].includes(value)) || title === 'rest period') {
+    return 'rest_period';
+  }
   return (
-    kind === 'break' ||
-    category === 'break' ||
-    energySlot === 'break' ||
+    values.includes('break') ||
     title === 'break' ||
+    title === 'break time' ||
     title === 'short break' ||
     title === 'rest break'
-  );
+  ) ? 'break' : '';
+}
+
+function getNonTaskFlowTitle(item = {}) {
+  const flowKind = getNonTaskFlowKind(item);
+  if (flowKind === 'free_time') return 'Free Time';
+  if (flowKind === 'rest_period') return 'Rest Period';
+  return 'Break Time';
+}
+
+function getNonTaskFlowSuggestion(item = {}) {
+  if (item.ai_suggestion || item.suggestion) return item.ai_suggestion || item.suggestion;
+  const duration = getDurationMinutes(item.start_time, item.end_time);
+  const flowKind = getNonTaskFlowKind(item);
+  if (flowKind === 'free_time') {
+    return duration >= 45 ? 'Suggested: reset, eat, or prepare for the next task.' : 'Suggested: clear your desk or take a short pause.';
+  }
+  if (flowKind === 'rest_period') return 'Suggested: rest without task pressure.';
+  return 'Suggested: short walk or rest.';
 }
 
 function parseBooleanValue(value) {
@@ -5070,21 +5119,65 @@ function initializeDailyDetailItems({ day, schedule, items = [], tasks = [] }) {
 
 function splitDailyDetailItems(detailItems, latestLog) {
   const sortedItems = [...detailItems].sort((a, b) => getDetailSortTime(a) - getDetailSortTime(b));
-  const breakItems = sortedItems.filter(isBreakScheduleItem);
+  const inferredFlowItems = buildInferredFreeTimeItems(sortedItems);
+  const breakItems = [...sortedItems.filter(isBreakScheduleItem), ...inferredFlowItems]
+    .sort((a, b) => getDetailSortTime(a) - getDetailSortTime(b));
   const taskItems = sortedItems.filter((item) => !isBreakScheduleItem(item));
   const currentTask = taskItems.find((item) => item.status === 'in_progress') || null;
   const completedTasks = taskItems.filter((item) => item.status === 'completed');
   const waitingTasks = taskItems.filter((item) => item.status === 'waiting' || item.status === 'overdue');
+  const waitingFlowItems = [...waitingTasks, ...breakItems]
+    .sort((a, b) => getDetailSortTime(a) - getDetailSortTime(b));
+  const timelineItems = [...sortedItems, ...inferredFlowItems]
+    .sort((a, b) => getDetailSortTime(a) - getDetailSortTime(b));
   const advice = buildDailyAdvice({ waitingTasks, completedTasks, currentTask, latestLog, dayItems: taskItems, breakItems });
 
   return {
     waitingTasks,
+    waitingFlowItems,
     breakItems,
     currentTask,
     completedTasks,
-    timeline: sortedItems,
+    timeline: timelineItems,
     advice
   };
+}
+
+function buildInferredFreeTimeItems(items = []) {
+  const scheduleBlocks = items
+    .filter((item) => !item.is_deadline_continuation && item.status !== 'removed')
+    .filter((item) => isValidDate(new Date(item.start_time)) && isValidDate(new Date(item.end_time)))
+    .sort((a, b) => new Date(a.start_time) - new Date(b.start_time));
+  const gaps = [];
+
+  for (let index = 0; index < scheduleBlocks.length - 1; index += 1) {
+    const currentEnd = new Date(scheduleBlocks[index].end_time);
+    const nextStart = new Date(scheduleBlocks[index + 1].start_time);
+    if (datePart(currentEnd) !== datePart(nextStart)) continue;
+    const gapMinutes = Math.round((nextStart - currentEnd) / 60000);
+    if (gapMinutes < 10) continue;
+
+    const flowKind = gapMinutes >= 45 ? 'free_time' : 'break';
+    gaps.push({
+      detail_id: `flow_${datePart(currentEnd)}_${currentEnd.getTime()}_${nextStart.getTime()}`,
+      schedule_item_id: null,
+      task_id: null,
+      title: flowKind === 'free_time' ? 'Free Time' : 'Break Time',
+      category: flowKind,
+      task_kind: flowKind,
+      energy_slot: flowKind,
+      status: 'break',
+      start_time: currentEnd.toISOString(),
+      end_time: nextStart.toISOString(),
+      reason: flowKind === 'free_time' ? 'Open time between scheduled tasks' : 'Short recovery break between tasks',
+      ai_suggestion: flowKind === 'free_time'
+        ? 'Suggested: reset, eat, or prepare for the next task.'
+        : 'Suggested: short walk or rest.',
+      is_visual_flow_item: true
+    });
+  }
+
+  return gaps;
 }
 
 function buildDailyAdviceNotes(localAdvice = [], aiNotes = [], dayKey, latestLog) {

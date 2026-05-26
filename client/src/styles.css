@@ -3475,7 +3475,28 @@ input:disabled {
 
 .detail-task-card.break-card {
   border-style: dashed;
-  background: rgba(244, 247, 252, 0.88);
+  border-color: rgba(17, 167, 164, 0.28);
+  background:
+    radial-gradient(circle at top right, rgba(17, 167, 164, 0.1), transparent 8rem),
+    rgba(244, 247, 252, 0.9);
+}
+
+.break-card-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.break-suggestion {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border-radius: 14px;
+  padding: 8px 10px;
+  color: var(--brand-dark);
+  background: rgba(231, 251, 248, 0.92);
+  font-size: 0.84rem;
+  font-weight: 900;
 }
 
 .deadline-reminder {
@@ -4159,6 +4180,10 @@ input:disabled {
   font-size: 1.03rem;
 }
 
+.detail-task-card strong.break-card-title {
+  display: inline-flex;
+}
+
 .detail-task-card > div:first-child span,
 .timeline-row span {
   display: block;
@@ -4465,6 +4490,7 @@ input:disabled {
 
 .timeline-row.break {
   border-style: dashed;
+  border-color: rgba(17, 167, 164, 0.28);
   background: rgba(244, 247, 252, 0.88);
 }
 
