@@ -164,6 +164,20 @@ function fallbackScheduleHints(payload, error) {
 }
 
 function fallbackSubtasks(payload, error) {
+  if (isSimpleBreakdownPayload(payload)) {
+    return {
+      module: 'subtask_generation',
+      source: 'node_rule_based_fallback',
+      model: 'local_ai_style_planner',
+      subtasks: [],
+      skipped: true,
+      reason: 'simple_task',
+      message: 'No breakdown needed for this simple task.',
+      confidence: 0.45,
+      fallback_reason: error.message
+    };
+  }
+
   const fallbackPieces = buildFallbackSubtaskPlan(payload);
   return {
     module: 'subtask_generation',
@@ -176,6 +190,25 @@ function fallbackSubtasks(payload, error) {
     confidence: 0.45,
     fallback_reason: error.message
   };
+}
+
+function isSimpleBreakdownPayload(payload = {}) {
+  const title = String(payload.title || '').toLowerCase();
+  const description = String(payload.description || payload.task_description || '').toLowerCase();
+  const category = String(payload.category || payload.task_category || '').toLowerCase();
+  const signals = `${title} ${description} ${category}`;
+  const difficulty = parseInteger(payload.difficulty_level, 3);
+  const duration = parseInteger(payload.estimated_duration_minutes, 60);
+  const priority = parseInteger(payload.priority_level, 3);
+  const simpleRoutine = ['routine', 'personal', 'health', 'home', 'household'].includes(category) ||
+    hasAny(signals, ['skin care', 'skincare', 'shower', 'brush', 'breakfast', 'lunch', 'dinner', 'walk', 'laundry', 'tidy', 'clean room', 'routine']);
+  const complexCategory = ['study', 'coding', 'writing', 'project', 'design', 'presentation'].includes(category) ||
+    hasAny(signals, ['project', 'presentation', 'poster', 'report', 'essay', 'code', 'database', 'api', 'research', 'exam', 'design', 'slides']);
+  const multipleParts = hasMultipleWorkParts(description);
+
+  if (duration < 60 && difficulty <= 2 && priority <= 3 && (simpleRoutine || !complexCategory)) return true;
+  if (duration < 45 && difficulty <= 2 && priority <= 3 && !multipleParts) return true;
+  return false;
 }
 
 function buildFallbackSubtaskPlan(payload) {
@@ -205,7 +238,24 @@ function buildFallbackSubtaskPlan(payload) {
     if (difficulty >= 4 || duration >= 75) steps.splice(1, 0, 'Collect the references or examples needed');
     return steps;
   }
-  if (category === 'study' || hasAny(signals, ['study', 'exam', 'lecture', 'chapter', 'homework'])) {
+  if (hasAny(signals, ['presentation', 'slide'])) {
+    return [
+      'Define the main sections and order',
+      'Collect needed materials or examples',
+      'Write the slide content clearly',
+      'Review structure and missing parts',
+      'Prepare the final version'
+    ];
+  }
+  if (hasAny(signals, ['poster', 'design', 'layout'])) {
+    const steps = ['Review the current layout and final requirements'];
+    if (hasAny(signals, ['ai', 'model', 'models'])) steps.push('Update the AI models section with clear model types');
+    if (hasAny(signals, ['duplicate', 'duplicated', 'unnecessary', 'repeated'])) steps.push('Remove duplicated or unnecessary text');
+    steps.push('Improve visual spacing, alignment, and hierarchy');
+    steps.push(hasAny(signals, ['export', 'pdf', 'final']) ? 'Export and verify final PDF quality' : 'Review the final design for consistency');
+    return steps;
+  }
+  if (category === 'study' || hasAnyWord(signals, ['study', 'exam', 'lecture', 'chapter', 'homework'])) {
     const steps = [
       `Review the goal and material for ${title}`,
       'Work through the most important examples',
@@ -213,14 +263,6 @@ function buildFallbackSubtaskPlan(payload) {
       'Check understanding with practice or recall'
     ];
     if (difficulty >= 4) steps.splice(2, 0, 'Mark confusing points for extra review');
-    return steps;
-  }
-  if (hasAny(signals, ['poster', 'design', 'layout', 'presentation', 'slide'])) {
-    const steps = ['Review the current layout and final requirements'];
-    if (hasAny(signals, ['ai', 'model', 'models'])) steps.push('Update the AI models section with clear model types');
-    if (hasAny(signals, ['duplicate', 'duplicated', 'unnecessary', 'repeated'])) steps.push('Remove duplicated or unnecessary text');
-    steps.push('Improve visual spacing, alignment, and hierarchy');
-    steps.push(hasAny(signals, ['export', 'pdf', 'final']) ? 'Export and verify final PDF quality' : 'Review the final design for consistency');
     return steps;
   }
 
@@ -237,6 +279,20 @@ function buildFallbackSubtaskPlan(payload) {
 
 function hasAny(value, keywords) {
   return keywords.some((keyword) => value.includes(keyword));
+}
+
+function hasAnyWord(value, keywords) {
+  return keywords.some((keyword) => new RegExp(`\\b${keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(value));
+}
+
+function hasMultipleWorkParts(value) {
+  if (!value) return false;
+  const separators = (value.match(/,/g) || []).length +
+    (value.match(/;/g) || []).length +
+    (value.match(/\sand\s/g) || []).length +
+    (value.match(/\sthen\s/g) || []).length;
+  const actionWords = (value.match(/\b(update|add|fix|remove|export|review|write|collect|test|design|prepare)\b/g) || []).length;
+  return separators >= 2 || actionWords >= 3;
 }
 
 function fallbackAdvice(payload, error) {

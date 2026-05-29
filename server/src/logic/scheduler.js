@@ -24,7 +24,8 @@ export function generateDailySchedule({
   const planningStart = getEffectivePlanningStart(targetDate, requestedPlanningStart, planningEnd);
   const basePredictedEnergy = dailyLog?.predicted_energy_level || dailyLog?.energy_level || 3;
   const rescheduleEnergy = adjustEnergyFromFeedback(basePredictedEnergy, feedbackContext);
-  const breakMinutes = chooseBreakMinutes(preferences?.break_duration_minutes || 10, feedbackContext);
+  const userState = buildUserState(dailyLog, rescheduleEnergy, feedbackContext);
+  const preferredBreakMinutes = clamp(Number.parseInt(preferences?.break_duration_minutes || 10, 10) || 10, 5, 30);
 
   const fixedTasks = tasks
     .filter((task) => (
@@ -68,6 +69,8 @@ export function generateDailySchedule({
     reason: 'Fixed-time task reserved by the user.'
   }));
 
+  const workState = createWorkState();
+
   for (const segment of freeSegments) {
     let cursor = new Date(segment.start);
     for (const task of flexibleTasks) {
@@ -92,10 +95,39 @@ export function generateDailySchedule({
           reason: buildReason(task, rescheduleEnergy, feedbackContext)
         });
         task.remaining_minutes -= blockMinutes;
+        recordWorkBlock(workState, task, blockMinutes);
+
         const remainingWorkExists = task.remaining_minutes > 0 ||
           flexibleTasks.some((nextTask) => nextTask.task_id !== task.task_id && nextTask.remaining_minutes > 0);
+        const nextTask = findNextFlexibleTask(flexibleTasks, task.task_id);
+        const breakMinutes = chooseBreakMinutes(preferredBreakMinutes, {
+          userState,
+          feedbackContext,
+          task,
+          blockMinutes,
+          workState,
+          nextTask
+        });
         const breakEnd = addMinutes(end, breakMinutes);
-        if (remainingWorkExists && breakEnd <= segment.end && Math.floor((segment.end - breakEnd) / 60000) >= 15) {
+        if (shouldAddBreakAfterTask({
+          remainingWorkExists,
+          breakEnd,
+          segmentEnd: segment.end,
+          userState,
+          feedbackContext,
+          task,
+          blockMinutes,
+          workState,
+          nextTask
+        })) {
+          const suggestion = buildBreakSuggestion({
+            userState,
+            feedbackContext,
+            task,
+            blockMinutes,
+            workState,
+            nextTask
+          });
           items.push({
             task_id: null,
             title: 'Break Time',
@@ -106,9 +138,10 @@ export function generateDailySchedule({
             energy_slot: 'break',
             task_kind: 'break',
             priority_level: null,
-            reason: 'Rest before the next task.'
+            reason: suggestion
           });
           cursor = breakEnd;
+          resetWorkAfterBreak(workState);
         } else {
           cursor = end;
         }
@@ -142,6 +175,18 @@ function enrichFlexibleTask(task, feedback) {
   const history = feedback.filter((item) => item.task_id === task.task_id);
   const missedBefore = history.some((item) => !item.completed);
   const hardBefore = history.some((item) => Number.parseInt(item.difficulty_feedback, 10) >= 4);
+  const overranBefore = history.some((item) => {
+    const actual = Number.parseInt(item.actual_duration_minutes, 10);
+    const planned = Number.parseInt(task.estimated_duration_minutes || enriched.estimated_duration_minutes, 10);
+    return actual > 0 && planned > 0 && actual > planned * 1.25;
+  });
+  const positiveBefore = history.some((item) => {
+    const energyAfter = Number.parseInt(item.energy_after, 10);
+    const difficultyFeedback = Number.parseInt(item.difficulty_feedback, 10);
+    return Boolean(item.completed) &&
+      (!Number.isNaN(energyAfter) && energyAfter >= 4) &&
+      (Number.isNaN(difficultyFeedback) || difficultyFeedback <= 2);
+  });
   const remaining = Number.parseInt(task.remaining_duration_minutes, 10) || enriched.estimated_duration_minutes;
 
   return {
@@ -150,7 +195,9 @@ function enrichFlexibleTask(task, feedback) {
     remaining_minutes: remaining,
     urgency_score: deadlineUrgency(task.deadline),
     feedback_penalty: missedBefore ? 4 : 0,
-    feedback_hardness: hardBefore ? 1 : 0
+    feedback_hardness: hardBefore ? 1 : 0,
+    feedback_overrun: overranBefore ? 1 : 0,
+    feedback_positive: positiveBefore ? 1 : 0
   };
 }
 
@@ -201,7 +248,14 @@ function scoreTask(task, energy) {
   if (energy >= 4 && difficulty >= 4) energyFit = 16;
   if (energy <= 2 && difficulty <= 2) energyFit = 14;
   if (energy <= 2 && difficulty >= 4) energyFit = task.urgency_score >= 30 ? 1 : -12;
-  return priority * 10 + task.urgency_score + energyFit - task.feedback_penalty - task.feedback_hardness;
+  if (energy <= 2 && difficulty >= 3 && priority <= 3) energyFit -= 4;
+  if (task.feedback_positive && energy >= 3) energyFit += 2;
+  return priority * 10 +
+    task.urgency_score +
+    energyFit -
+    task.feedback_penalty -
+    task.feedback_hardness -
+    (task.feedback_overrun ? 2 : 0);
 }
 
 function chooseSessionLength(task, energy) {
@@ -259,11 +313,179 @@ function adjustEnergyFromFeedback(baseEnergy, feedbackContext) {
   return clamp(energy, 1, 5);
 }
 
-function chooseBreakMinutes(defaultBreak, feedbackContext) {
-  if (!feedbackContext) return defaultBreak;
+function buildUserState(dailyLog, energy, feedbackContext) {
+  const stress = Number.parseInt(dailyLog?.stress_level, 10);
+  const mood = Number.parseInt(dailyLog?.mood_level, 10);
+  const sleepHours = Number.parseFloat(dailyLog?.sleep_hours);
+  const state = {
+    energy: clamp(Number.parseInt(energy, 10) || 3, 1, 5),
+    stress: Number.isNaN(stress) ? 3 : stress,
+    mood: Number.isNaN(mood) ? 3 : mood,
+    sleepHours: Number.isNaN(sleepHours) ? 7 : sleepHours,
+    isTired: parseBoolean(dailyLog?.is_tired)
+  };
+  state.needsRecovery = state.energy <= 2 ||
+    state.stress >= 4 ||
+    state.sleepHours < 6 ||
+    state.isTired ||
+    hasRecoveryFeedback(feedbackContext);
+  state.strongStart = state.energy >= 4 &&
+    state.stress <= 2 &&
+    state.sleepHours >= 7 &&
+    !state.isTired &&
+    state.mood >= 3;
+  return state;
+}
+
+function createWorkState() {
+  return {
+    totalBlocks: 0,
+    minutesSinceBreak: 0,
+    blocksSinceBreak: 0,
+    distinctTasksSinceBreak: 0,
+    taskIdsSinceBreak: new Set()
+  };
+}
+
+function recordWorkBlock(workState, task, blockMinutes) {
+  workState.totalBlocks += 1;
+  workState.minutesSinceBreak += blockMinutes;
+  workState.blocksSinceBreak += 1;
+  if (task.task_id && !workState.taskIdsSinceBreak.has(task.task_id)) {
+    workState.taskIdsSinceBreak.add(task.task_id);
+    workState.distinctTasksSinceBreak = workState.taskIdsSinceBreak.size;
+  }
+}
+
+function resetWorkAfterBreak(workState) {
+  workState.minutesSinceBreak = 0;
+  workState.blocksSinceBreak = 0;
+  workState.distinctTasksSinceBreak = 0;
+  workState.taskIdsSinceBreak.clear();
+}
+
+function findNextFlexibleTask(tasks, currentTaskId) {
+  return tasks.find((task) => task.task_id !== currentTaskId && task.remaining_minutes > 0) ||
+    tasks.find((task) => task.remaining_minutes > 0) ||
+    null;
+}
+
+function shouldAddBreakAfterTask({
+  remainingWorkExists,
+  breakEnd,
+  segmentEnd,
+  userState,
+  feedbackContext,
+  task,
+  blockMinutes,
+  workState,
+  nextTask
+}) {
+  if (!remainingWorkExists) return false;
+  if (breakEnd > segmentEnd) return false;
+  if (Math.floor((segmentEnd - breakEnd) / 60000) < 15) return false;
+
+  const difficulty = Number.parseInt(task.difficulty_level, 10) || 3;
+  const nextDifficulty = Number.parseInt(nextTask?.difficulty_level, 10) || 0;
+  const firstLightBlock = workState.totalBlocks === 1 && blockMinutes < 75 && difficulty <= 3;
+
+  if (firstLightBlock && userState.strongStart && !hasRecoveryFeedback(feedbackContext)) {
+    return false;
+  }
+  if (blockMinutes >= 75) return true;
+  if (difficulty >= 4) return true;
+  if (workState.minutesSinceBreak >= (userState.needsRecovery ? 55 : 100)) return true;
+  if (workState.distinctTasksSinceBreak >= 2 && workState.minutesSinceBreak >= 45) return true;
+  if (nextDifficulty >= 4 && (userState.needsRecovery || workState.minutesSinceBreak >= 60)) return true;
+  if (hasRecoveryFeedback(feedbackContext) && workState.minutesSinceBreak >= 25) return true;
+  if ((userState.energy <= 2 || userState.stress >= 4 || userState.isTired) && workState.minutesSinceBreak >= 30) return true;
+  return false;
+}
+
+function chooseBreakMinutes(defaultBreak, context = {}) {
+  const { userState, feedbackContext, task, blockMinutes, workState, nextTask } = context;
+  let minutes = defaultBreak;
+  const difficulty = Number.parseInt(task?.difficulty_level, 10) || 3;
+  const nextDifficulty = Number.parseInt(nextTask?.difficulty_level, 10) || 0;
+
+  if (workState?.minutesSinceBreak >= 120 || blockMinutes >= 90) {
+    minutes += 10;
+  } else if (difficulty >= 4 || nextDifficulty >= 4 || userState?.needsRecovery || hasRecoveryFeedback(feedbackContext)) {
+    minutes += 5;
+  }
+
+  return clamp(minutes, 5, 30);
+}
+
+function buildBreakSuggestion({ userState, feedbackContext, task, blockMinutes, workState, nextTask }) {
+  const difficulty = Number.parseInt(task?.difficulty_level, 10) || 3;
+  const nextDifficulty = Number.parseInt(nextTask?.difficulty_level, 10) || 0;
+  const seed = `${task?.task_id || task?.title || 'break'}:${workState?.totalBlocks || 0}:${workState?.minutesSinceBreak || 0}`;
+  let suggestion = '';
+
+  if (hasRecoveryFeedback(feedbackContext)) {
+    suggestion = chooseSuggestion([
+      'Take a recovery break before more hard work',
+      'Relax for a few minutes before the next step',
+      'Use this break to lower the pace a little'
+    ], seed);
+  } else if (userState?.stress >= 4) {
+    suggestion = chooseSuggestion([
+      'Short breathing reset before the next task',
+      'Stretch your shoulders and take a screen break',
+      'Drink water and reset your breathing'
+    ], seed);
+  } else if (userState?.energy <= 2 || userState?.isTired) {
+    suggestion = chooseSuggestion([
+      'Drink water and take a screen break',
+      'Eat something light if you need fuel',
+      'Rest your eyes before continuing'
+    ], seed);
+  } else if (difficulty >= 4) {
+    suggestion = chooseSuggestion([
+      'Relax before the next hard task',
+      'Take a screen break after that hard block',
+      'Reset before continuing with difficult work'
+    ], seed);
+  } else if (blockMinutes >= 75 || workState?.minutesSinceBreak >= 100) {
+    suggestion = chooseSuggestion([
+      'Stretch for a few minutes',
+      'Walk around briefly',
+      'Get water and loosen up'
+    ], seed);
+  } else if (nextDifficulty >= 4) {
+    suggestion = chooseSuggestion([
+      'Prepare calmly for the next difficult task',
+      'Clear your workspace before the hard task',
+      'Take a quiet reset before the next hard block'
+    ], seed);
+  } else {
+    const options = [
+      'Drink water',
+      'Take a coffee break',
+      'Eat something light',
+      'Take a screen break',
+      'Prepare for the next task'
+    ];
+    suggestion = options[hashString(String(task?.task_id || task?.title || 'break')) % options.length];
+  }
+
+  return `Suggested: ${suggestion}.`;
+}
+
+function chooseSuggestion(options, seed) {
+  return options[hashString(seed) % options.length];
+}
+
+function hasRecoveryFeedback(feedbackContext) {
+  if (!feedbackContext) return false;
   const energyAfter = Number.parseInt(feedbackContext.energy_after, 10);
-  if (!Number.isNaN(energyAfter) && energyAfter <= 2) return defaultBreak + 5;
-  return defaultBreak;
+  const moodAfter = Number.parseInt(feedbackContext.mood_after, 10);
+  const difficultyFeedback = Number.parseInt(feedbackContext.difficulty_feedback, 10);
+  return !feedbackContext.completed ||
+    (!Number.isNaN(energyAfter) && energyAfter <= 2) ||
+    (!Number.isNaN(moodAfter) && moodAfter <= 2) ||
+    (!Number.isNaN(difficultyFeedback) && difficultyFeedback >= 4);
 }
 
 function buildReason(task, energy, feedbackContext) {
@@ -313,10 +535,26 @@ function dateOnly(value) {
   return String(value).slice(0, 10);
 }
 
+function parseBoolean(value) {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') return value === 1;
+  if (typeof value === 'string') return ['true', '1', 'yes', 'on'].includes(value.trim().toLowerCase());
+  return false;
+}
+
 function addMinutes(date, minutes) {
   return new Date(date.getTime() + minutes * 60000);
 }
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
+}
+
+function hashString(value) {
+  let hash = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = ((hash << 5) - hash) + value.charCodeAt(index);
+    hash |= 0;
+  }
+  return Math.abs(hash);
 }

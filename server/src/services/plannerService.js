@@ -1564,10 +1564,6 @@ async function ensureAiSubtasksForItem(userId, item) {
   const existingSubtasks = typeof store.listSubtasksForScheduleItem === 'function'
     ? await store.listSubtasksForScheduleItem(item.schedule_item_id)
     : item.subtasks || [];
-  if (existingSubtasks.some((subtask) => Boolean(subtask.generated_by_ai))) {
-    return existingSubtasks;
-  }
-
   const task = item.task || (item.task_id ? await store.getTask(item.task_id) : null);
   const input = {
     user_id: userId,
@@ -1577,9 +1573,38 @@ async function ensureAiSubtasksForItem(userId, item) {
     description: task?.description || item.reason || '',
     category: task?.category || item.category,
     difficulty_level: task?.difficulty_level || item.difficulty_level,
+    priority_level: task?.priority_level || item.priority_level,
     estimated_duration_minutes: task?.estimated_duration_minutes || getDurationMinutes(item.start_time, item.end_time)
   };
+
+  if (isSimpleBreakdownInput(input)) {
+    await store.replaceSubtasksForScheduleItem(item.schedule_item_id, []);
+    return [];
+  }
+
+  if (existingSubtasks.some((subtask) => Boolean(subtask.generated_by_ai))) {
+    return existingSubtasks;
+  }
+
   const generated = await generateSubtasksWithAi(input);
+  if (generated.skipped || generated.reason === 'simple_task') {
+    await store.replaceSubtasksForScheduleItem(item.schedule_item_id, []);
+    await insertIfSupported('insertAiPrediction', {
+      prediction_id: createId('pred'),
+      user_id: userId,
+      related_task_id: item.task_id,
+      related_schedule_id: item.schedule_id,
+      module_name: 'subtask_generation',
+      model_name: generated.model || null,
+      source: generated.source || 'python_ai_service',
+      confidence: generated.confidence ?? null,
+      input_json: input,
+      output_json: generated,
+      created_at: new Date().toISOString()
+    });
+    return [];
+  }
+
   const subtasks = normalizeGeneratedSubtasks(generated.subtasks).map((subtask, index) => ({
     subtask_id: createId('subtask'),
     user_id: userId,
@@ -1610,6 +1635,39 @@ async function ensureAiSubtasksForItem(userId, item) {
     created_at: new Date().toISOString()
   });
   return savedSubtasks;
+}
+
+function isSimpleBreakdownInput(input = {}) {
+  const title = String(input.title || '').toLowerCase();
+  const description = String(input.description || '').toLowerCase();
+  const category = String(input.category || '').toLowerCase();
+  const signals = `${title} ${description} ${category}`;
+  const difficulty = parseInteger(input.difficulty_level, 3);
+  const duration = parseInteger(input.estimated_duration_minutes, 60);
+  const priority = parseInteger(input.priority_level, 3);
+  const simpleRoutine = ['routine', 'personal', 'health', 'home', 'household'].includes(category) ||
+    hasBreakdownKeyword(signals, ['skin care', 'skincare', 'shower', 'brush', 'breakfast', 'lunch', 'dinner', 'walk', 'laundry', 'tidy', 'clean room', 'routine']);
+  const complexCategory = ['study', 'coding', 'writing', 'project', 'design', 'presentation'].includes(category) ||
+    hasBreakdownKeyword(signals, ['project', 'presentation', 'poster', 'report', 'essay', 'code', 'database', 'api', 'research', 'exam', 'design', 'slides']);
+  const multipleParts = hasMultipleBreakdownParts(description);
+
+  if (duration < 60 && difficulty <= 2 && priority <= 3 && (simpleRoutine || !complexCategory)) return true;
+  if (duration < 45 && difficulty <= 2 && priority <= 3 && !multipleParts) return true;
+  return false;
+}
+
+function hasBreakdownKeyword(value, keywords) {
+  return keywords.some((keyword) => value.includes(keyword));
+}
+
+function hasMultipleBreakdownParts(value) {
+  if (!value) return false;
+  const separators = (value.match(/,/g) || []).length +
+    (value.match(/;/g) || []).length +
+    (value.match(/\sand\s/g) || []).length +
+    (value.match(/\sthen\s/g) || []).length;
+  const actionWords = (value.match(/\b(update|add|fix|remove|export|review|write|collect|test|design|prepare)\b/g) || []).length;
+  return separators >= 2 || actionWords >= 3;
 }
 
 function normalizeGeneratedSubtasks(subtasks) {

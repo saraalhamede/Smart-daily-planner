@@ -11,6 +11,25 @@ def generate_subtasks(payload: dict) -> dict:
     category = text(payload.get("category") or "general")
     difficulty = clamp(payload.get("difficulty_level"), 1, 5, 3)
     duration = clamp(payload.get("estimated_duration_minutes"), 15, 480, 60)
+    priority = clamp(payload.get("priority_level"), 1, 5, 3)
+
+    if should_skip_breakdown(title, description, category, difficulty, duration, priority):
+        return {
+            "module": "subtask_generation",
+            "source": "python_ai_service",
+            "model": "rule_based_ai_style_planner",
+            "subtasks": [],
+            "skipped": True,
+            "reason": "simple_task",
+            "message": "No breakdown needed for this simple task.",
+            "confidence": 0.78,
+            "signals": {
+                "category": category,
+                "difficulty_level": difficulty,
+                "priority_level": priority,
+                "estimated_duration_minutes": duration,
+            },
+        }
 
     candidates = build_intelligent_steps(title, description, category, difficulty, duration)
     max_steps = 5 if duration >= 75 or difficulty >= 4 else 4
@@ -28,9 +47,55 @@ def generate_subtasks(payload: dict) -> dict:
         "signals": {
             "category": category,
             "difficulty_level": difficulty,
+            "priority_level": priority,
             "estimated_duration_minutes": duration,
         },
     }
+
+
+def should_skip_breakdown(title: str, description: str, category: str, difficulty: int, duration: int, priority: int) -> bool:
+    signals = f"{title} {description} {category}".lower()
+    simple_routine = category in {"routine", "personal", "health", "home", "household"} or has_any(
+        signals,
+        (
+            "skin care",
+            "skincare",
+            "shower",
+            "brush",
+            "breakfast",
+            "lunch",
+            "dinner",
+            "walk",
+            "laundry",
+            "tidy",
+            "clean room",
+            "routine",
+        ),
+    )
+    complex_category = category in {"study", "coding", "writing", "project", "design", "presentation"} or has_any(
+        signals,
+        (
+            "project",
+            "presentation",
+            "poster",
+            "report",
+            "essay",
+            "code",
+            "database",
+            "api",
+            "research",
+            "exam",
+            "design",
+            "slides",
+        ),
+    )
+    multiple_parts = has_multiple_work_parts(description)
+
+    if duration < 60 and difficulty <= 2 and priority <= 3 and (simple_routine or not complex_category):
+        return True
+    if duration < 45 and difficulty <= 2 and priority <= 3 and not multiple_parts:
+        return True
+    return False
 
 
 def build_intelligent_steps(title: str, description: str, category: str, difficulty: int, duration: int) -> list[str]:
@@ -59,18 +124,17 @@ def build_intelligent_steps(title: str, description: str, category: str, difficu
             steps.insert(1, "Collect the references or examples needed")
         return steps
 
-    if category == "study" or has_any(signals, ("study", "exam", "lecture", "chapter", "homework")):
+    if has_any(signals, ("presentation", "slide")):
         steps.extend([
-            f"Review the goal and material for {task_name}",
-            "Work through the most important examples",
-            "Summarize the key ideas in your own words",
-            "Check understanding with practice or recall",
+            "Define the main sections and order",
+            "Collect needed materials or examples",
+            "Write the slide content clearly",
+            "Review structure and missing parts",
+            "Prepare the final version",
         ])
-        if difficulty >= 4:
-            steps.insert(2, "Mark confusing points for extra review")
         return steps
 
-    if has_any(signals, ("poster", "design", "layout", "presentation", "slide")):
+    if has_any(signals, ("poster", "design", "layout")):
         steps.append("Review the current layout and final requirements")
         if has_any(signals, ("ai", "model", "models")):
             steps.append("Update the AI models section with clear model types")
@@ -81,6 +145,17 @@ def build_intelligent_steps(title: str, description: str, category: str, difficu
             steps.append("Export and verify final PDF quality")
         else:
             steps.append("Review the final design for consistency")
+        return steps
+
+    if category == "study" or has_any_word(signals, ("study", "exam", "lecture", "chapter", "homework")):
+        steps.extend([
+            f"Review the goal and material for {task_name}",
+            "Work through the most important examples",
+            "Summarize the key ideas in your own words",
+            "Check understanding with practice or recall",
+        ])
+        if difficulty >= 4:
+            steps.insert(2, "Mark confusing points for extra review")
         return steps
 
     steps.extend([
@@ -125,8 +200,21 @@ def fallback_steps(title: str, category: str, difficulty: int, duration: int) ->
     return [f"Plan {task_name}", "Complete the main work", "Review and fix issues", "Finalize the task"]
 
 
+def has_multiple_work_parts(value: str) -> bool:
+    if not value:
+        return False
+    lower = value.lower()
+    separators = lower.count(",") + lower.count(";") + lower.count(" and ") + lower.count(" then ")
+    action_words = len(re.findall(r"\b(update|add|fix|remove|export|review|write|collect|test|design|prepare)\b", lower))
+    return separators >= 2 or action_words >= 3
+
+
 def has_any(value: str, keywords: tuple[str, ...]) -> bool:
     return any(keyword in value for keyword in keywords)
+
+
+def has_any_word(value: str, keywords: tuple[str, ...]) -> bool:
+    return any(re.search(rf"\b{re.escape(keyword)}\b", value) for keyword in keywords)
 
 
 def clean_phrase(value: str) -> str:

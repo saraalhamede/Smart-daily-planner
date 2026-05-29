@@ -3142,10 +3142,10 @@ function InProgressTaskCard({
   onReturn,
   isReviewMode = false
 }) {
+  const hasSubtasks = uiState.subtasks.length > 0;
   const completedSubtasks = uiState.subtasks.filter((subtask) => subtask.completed).length;
-  const totalSubtasks = uiState.subtasks.length || 1;
-  const progress = Math.round((completedSubtasks / totalSubtasks) * 100);
-  const readyToFinish = progress === 100;
+  const progress = hasSubtasks ? Math.round((completedSubtasks / uiState.subtasks.length) * 100) : 0;
+  const readyToFinish = hasSubtasks && progress === 100;
 
   return (
     <article className={`in-progress-task-card ${isReviewMode ? 'read-only-card' : ''}`}>
@@ -3176,10 +3176,14 @@ function InProgressTaskCard({
         <div className="active-progress">
           <i style={{ width: `${progress}%` }}></i>
         </div>
-        <p className="progress-copy">Progress: {progress}% - {completedSubtasks}/{uiState.subtasks.length} completed</p>
+        {hasSubtasks ? (
+          <p className="progress-copy">Progress: {progress}% - {completedSubtasks}/{uiState.subtasks.length} completed</p>
+        ) : (
+          <p className="progress-copy">No checklist progress needed for this task.</p>
+        )}
         <div className="subtask-list">
-          {uiState.subtasks.length === 0 ? (
-            <span className="subtask-row">Generating task breakdown...</span>
+          {!hasSubtasks ? (
+            <span className="subtask-row">No breakdown needed for this simple task.</span>
           ) : uiState.subtasks.map((subtask) => (
             <label className="subtask-row" key={subtask.id}>
               <input
@@ -4961,7 +4965,7 @@ function getNonTaskFlowTitle(item = {}) {
 }
 
 function getNonTaskFlowSuggestion(item = {}) {
-  if (item.ai_suggestion || item.suggestion) return item.ai_suggestion || item.suggestion;
+  if (item.ai_suggestion || item.suggestion || item.reason) return item.ai_suggestion || item.suggestion || item.reason;
   const duration = getDurationMinutes(item.start_time, item.end_time);
   const flowKind = getNonTaskFlowKind(item);
   if (flowKind === 'free_time') {
