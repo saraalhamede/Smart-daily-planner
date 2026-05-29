@@ -989,6 +989,33 @@ http://127.0.0.1:3000
 
 ## Development Change Log
 
+### 2026-05-29
+- Improved the Daily Details schedule-generation behavior without changing the UI design.
+- Updated the rule-based scheduler so it does not add an unnecessary break at the beginning of a good-energy day.
+- Breaks are now added only when useful, such as after long work, hard tasks, multiple tasks, high stress, low energy, tired state, or difficult feedback.
+- Break blocks remain independent schedule items with `task_kind = "break"` and do not count as normal waiting, completed, unfinished, or productivity tasks.
+- Added varied break suggestions such as drinking water, taking a screen break, stretching, eating something light, preparing for the next task, or doing a breathing reset.
+- Updated scheduler scoring so previous feedback affects future task ordering and break placement.
+- Negative feedback, difficult tasks, low energy after feedback, and time overruns now make the next plan more careful.
+- Positive feedback allows the scheduler to continue normally without adding unnecessary recovery breaks.
+- Improved current-day scheduling so generated tasks and breaks respect the valid planning window and avoid past time slots.
+- Fixed duplicate schedule behavior by archiving/replacing old generated schedule items for the selected day instead of showing duplicated tasks after edit/regenerate.
+- Allowed deadline tasks to be started before the deadline by creating a real schedule block when the user chooses to work on them early.
+- Made break/free-time cards visible in the Waiting flow and Daily Timeline while disabling normal task actions for them.
+- Updated the Python AI subtask generator so simple tasks are not divided into unnecessary subtasks.
+- Simple/routine tasks such as short low-difficulty tasks now show `No breakdown needed for this simple task.`
+- Complex tasks still receive AI-generated subtasks based on title, description, category, difficulty, priority, and estimated duration.
+- Improved complex task breakdowns so presentation/design/project tasks get meaningful ordered steps instead of simple sentence splitting.
+- Updated the Node AI fallback to follow the same subtask rules when the Python AI service is unavailable.
+- Updated backend subtask saving so old AI-generated subtasks are cleared when a task is now considered simple.
+- Updated the Task In Progress UI logic so empty subtasks are treated as an intentional simple-task state, not as endless loading.
+- Updated break cards to display the scheduler's saved break suggestion.
+- Fixed the Restore Task dropdown layering so restore options appear above completed task cards and stay clickable.
+- Restarted and verified both backend and Python AI services.
+- Verified `/api/health` shows server, MySQL, and AI service are connected.
+- Verified Python AI `POST /ai/generate-subtasks` returns no subtasks for simple tasks and useful steps for complex presentation tasks.
+- Verified `npm run check` and `npm run build:client` pass.
+
 ### 2026-05-25
 - Added Python AI advice endpoint `POST /ai/generate-advice`.
 - Added backend proxy endpoint `POST /api/ai/generate-advice`.
