@@ -25,6 +25,7 @@ import {
   getUserPreferences,
   getWeeklyDashboard,
   loginUser,
+  moveTaskToDate,
   registerUser,
   removeTask,
   saveUserPreferences,
@@ -212,6 +213,14 @@ apiRouter.put('/tasks/:taskId', async (req, res, next) => {
 apiRouter.post('/tasks/:taskId/start', async (req, res, next) => {
   try {
     res.status(201).json(await startTaskOnDate(req.params.taskId, req.body));
+  } catch (error) {
+    next(error);
+  }
+});
+
+apiRouter.post('/tasks/:taskId/move-to-date', async (req, res, next) => {
+  try {
+    res.json(await moveTaskToDate(req.params.taskId, req.body));
   } catch (error) {
     next(error);
   }

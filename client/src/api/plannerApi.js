@@ -94,6 +94,12 @@ export const plannerApi = {
       body: JSON.stringify(payload)
     });
   },
+  moveTaskToDate(taskId, payload) {
+    return request(`/api/tasks/${encode(taskId)}/move-to-date`, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+  },
   removeTask(taskId) {
     return request(`/api/tasks/${taskId}`, {
       method: 'DELETE'

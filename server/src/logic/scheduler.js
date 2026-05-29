@@ -277,19 +277,8 @@ function deadlineUrgency(deadline) {
 
 function shouldTaskAppearOnDate(task, targetDate) {
   if (task.status === 'in_progress') return false;
-  const taskDate = dateOnly(task.task_date);
-  const startDate = taskDate || dateOnly(task.created_at);
-  const deadlineDate = dateOnly(task.deadline);
-
-  if (!deadlineDate) {
-    return !startDate || startDate === targetDate;
-  }
-
-  if (startDate && targetDate < startDate) {
-    return false;
-  }
-
-  return true;
+  const assignedDate = dateOnly(task.assigned_date || task.schedule_date || task.task_date || task.created_at);
+  return assignedDate === targetDate;
 }
 
 function getEffectivePlanningStart(targetDate, requestedStart, planningEnd) {

@@ -244,8 +244,10 @@ export function App() {
     const dailyLog = data.daily_checkin || data.daily_log || null;
     const dayItems = data.schedule_items || data.items || [];
 
-    if (dayTasks.length > 0) {
+    if (Array.isArray(data.tasks)) {
       setSelectedDayTasks((current) => ({ ...current, [dayKey]: dayTasks }));
+    }
+    if (dayTasks.length > 0) {
       setTasks((currentTasks) => dayTasks.reduce(
         (items, task) => upsertById(items, task, 'task_id'),
         currentTasks
@@ -272,6 +274,21 @@ export function App() {
     if (dayItems.length > 0) {
       setScheduleItems((currentItems) => mergeById(currentItems, dayItems, 'schedule_item_id'));
     }
+  }
+
+  async function handleAddUnfinishedTaskToSelectedDay(dayKey, task) {
+    const result = await plannerApi.moveTaskToDate(task.task_id, {
+      user_id: activeUserId,
+      date: dayKey
+    });
+    const movedTask = result.task;
+    setTasks((currentTasks) => upsertById(currentTasks, movedTask, 'task_id'));
+    setSelectedDayTasks((current) => ({
+      ...current,
+      [dayKey]: upsertById(current[dayKey] || [], movedTask, 'task_id')
+    }));
+    setMessage('Unfinished task added to this day generation list.');
+    return movedTask;
   }
 
   async function loadBootstrap() {
@@ -601,6 +618,7 @@ export function App() {
             addedTasks={getSelectedDayInputTasks(tasks, selectedDay?.key, selectedDayTasks)}
             onSaveTask={handleSelectedDayTaskSave}
             onDeleteTask={handleSelectedDayTaskDelete}
+            onAddUnfinishedTask={handleAddUnfinishedTaskToSelectedDay}
             onDayDataLoaded={handleSelectedDayDataLoaded}
             onError={handlePageLoadError}
           />
@@ -2005,6 +2023,7 @@ function SelectedDayInputPage({
   addedTasks,
   onSaveTask,
   onDeleteTask,
+  onAddUnfinishedTask,
   onDayDataLoaded,
   onError
 }) {
@@ -2014,6 +2033,7 @@ function SelectedDayInputPage({
   const [isGenerating, setIsGenerating] = useState(false);
   const [pageLoading, setPageLoading] = useState(false);
   const [pageError, setPageError] = useState('');
+  const [previousUnfinishedTasks, setPreviousUnfinishedTasks] = useState([]);
   const dayKey = day?.key || toDateKey(new Date());
   const dayTitle = formatSelectedDayHeading(day);
   const editingTask = addedTasks.find((task) => getPreviewTaskId(task) === editingTaskId) || null;
@@ -2029,6 +2049,7 @@ function SelectedDayInputPage({
     plannerApi.getDay(userId, dayKey)
       .then((data) => {
         if (!isCancelled) {
+          setPreviousUnfinishedTasks(data.previous_unfinished_tasks || data.unfinished_tasks || []);
           onDayDataLoaded?.(dayKey, data);
         }
       })
@@ -2066,6 +2087,15 @@ function SelectedDayInputPage({
     await onDeleteTask(dayKey, task);
     if (editingTaskId === taskId) {
       setEditingTaskId(null);
+    }
+  }
+
+  async function handleAddUnfinishedTask(task) {
+    try {
+      const movedTask = await onAddUnfinishedTask(dayKey, task);
+      setPreviousUnfinishedTasks((currentTasks) => currentTasks.filter((item) => item.task_id !== movedTask.task_id));
+    } catch (error) {
+      setPageError(error.message);
     }
   }
 
@@ -2137,11 +2167,17 @@ function SelectedDayInputPage({
             requireCompleteTask
             onCancelEdit={() => setEditingTaskId(null)}
             afterForm={
-              <AddedTasksPreview
-                tasks={addedTasks}
-                onEdit={handleEditTask}
-                onDelete={handleDeleteTask}
-              />
+              <>
+                <UnfinishedTasksPicker
+                  tasks={previousUnfinishedTasks}
+                  onAdd={handleAddUnfinishedTask}
+                />
+                <AddedTasksPreview
+                  tasks={addedTasks}
+                  onEdit={handleEditTask}
+                  onDelete={handleDeleteTask}
+                />
+              </>
             }
           />
         </div>
@@ -2215,22 +2251,26 @@ function DailyDetailsPage({
     setWaitingTaskToRemove(null);
   }, [dayKey, schedule?.schedule_id, items, tasks]);
 
+  function applyDailyDetailsData(data) {
+    const nextItems = initializeDailyDetailItems({
+      day,
+      schedule: data.schedule || schedule,
+      items: data.items || data.schedule_items || [],
+      tasks: data.tasks || tasks
+    });
+    setDetailItems(nextItems);
+    setActiveTaskUi(buildActiveTaskUiFromItems(nextItems));
+    setDailyAiNotes(data.ai_notes || []);
+    onDataRefresh?.(data);
+  }
+
   useEffect(() => {
     if (!userId || !dayKey) return undefined;
     let isCancelled = false;
     plannerApi.getDailyDetails(userId, dayKey)
       .then((data) => {
         if (isCancelled) return;
-        const nextItems = initializeDailyDetailItems({
-          day,
-          schedule: data.schedule || schedule,
-          items: data.items || data.schedule_items || [],
-          tasks: data.tasks || tasks
-        });
-        setDetailItems(nextItems);
-        setActiveTaskUi(buildActiveTaskUiFromItems(nextItems));
-        setDailyAiNotes(data.ai_notes || []);
-        onDataRefresh?.(data);
+        applyDailyDetailsData(data);
       })
       .catch((error) => {
         if (!isCancelled) {
@@ -3448,6 +3488,34 @@ function RemoveWaitingTaskModal({ item, onCancel, onConfirm }) {
   );
 }
 
+function UnfinishedTasksPicker({ tasks = [], onAdd }) {
+  return (
+    <section className="added-tasks-panel">
+      <div className="panel-head">
+        <div>
+          <p className="eyebrow">Carryover</p>
+          <h2>Unfinished Tasks</h2>
+        </div>
+        <span className="soft-pill">{tasks.length} available</span>
+      </div>
+
+      {tasks.length === 0 ? (
+        <p className="empty-state">No unfinished tasks from previous days.</p>
+      ) : (
+        <div className="added-task-list">
+          {tasks.map((task) => (
+            <PreviousUnfinishedTaskCard
+              task={task}
+              key={task.task_id}
+              onMove={() => onAdd(task)}
+            />
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
 function TaskFeedbackModal({ item, draft, onChange, onClose, onSubmit }) {
   return (
     <div className="feedback-modal-backdrop" role="presentation" onClick={onClose}>
@@ -3539,6 +3607,38 @@ function TaskFeedbackModal({ item, draft, onChange, onClose, onSubmit }) {
         </form>
       </section>
     </div>
+  );
+}
+
+function PreviousUnfinishedTaskCard({ task, onMove, isReviewMode = false }) {
+  const assignedDay = getTaskAssignedDayKey(task);
+  const deadlineState = getDeadlineState(task, toDateKey(new Date()));
+
+  return (
+    <article className="detail-task-card">
+      <div>
+        <strong>{task.title}</strong>
+        <span>{assignedDay ? `From ${formatDeadlineDay(assignedDay)}` : 'From a previous day'}</span>
+      </div>
+      <div className="chip-line">
+        <span>{task.category || 'Task'}</span>
+        <span>{task.remaining_duration_minutes || task.estimated_duration_minutes || 0}m</span>
+        <span>Priority {task.priority_level || 3}</span>
+        <span>Difficulty {task.difficulty_level || 3}</span>
+      </div>
+      {task.deadline ? (
+        <div className={`deadline-reminder ${deadlineState.tone || ''}`}>
+          <strong>{deadlineState.label || 'Deadline'}</strong>
+          <span>{deadlineState.detail}</span>
+        </div>
+      ) : null}
+      <div className="detail-task-actions">
+        <button type="button" onClick={onMove} disabled={isReviewMode}>
+          <CalendarClock size={15} />
+          Add to Current Day
+        </button>
+      </div>
+    </article>
   );
 }
 
@@ -5038,7 +5138,9 @@ function getDefaultCheckInDraft() {
 function normalizeSelectedDayTask(taskDraft, selectedDate) {
   const payload = {
     ...taskDraft,
-    task_date: selectedDate
+    task_date: selectedDate,
+    assigned_date: selectedDate,
+    schedule_date: selectedDate
   };
   delete payload.local_id;
 
@@ -5085,7 +5187,7 @@ function getSelectedDayInputTasks(tasks = [], dayKey, selectedDayTasks = {}) {
     !currentIds.has(task.task_id) &&
     !isTaskArchived(task) &&
     !isTaskCompleted(task) &&
-    (datePart(task.task_date) === dayKey || datePart(task.fixed_date) === dayKey)
+    (getTaskAssignedDayKey(task) === dayKey || datePart(task.fixed_date) === dayKey)
   ));
   return [...currentDrafts, ...savedTasks];
 }
@@ -5101,11 +5203,11 @@ function initializeDailyDetailItems({ day, schedule, items = [], tasks = [] }) {
   const now = new Date();
 
   const scheduledItems = items
-    .filter((item) => !dayKey || datePart(item.start_time) === dayKey || datePart(schedule?.schedule_date) === dayKey)
-    .filter((item) => !isTaskArchived(taskById.get(item.task_id)))
-    .filter((item) => shouldDisplayScheduledDetailItemOnDay(item, taskById.get(item.task_id), dayKey))
+    .filter((item) => isScheduleItemOnSelectedDay(item, dayKey, schedule))
+    .filter((item) => !isTaskArchived(taskById.get(item.task_id) || item.task))
+    .filter((item) => shouldDisplayScheduledDetailItemOnDay(item, taskById.get(item.task_id) || item.task, dayKey))
     .map((item, index) => {
-      const task = taskById.get(item.task_id);
+      const task = taskById.get(item.task_id) || item.task;
       const taskKind = item.task_kind || (task?.is_fixed_time ? 'fixed' : 'flexible');
       const detailItem = {
         ...item,
@@ -5118,16 +5220,23 @@ function initializeDailyDetailItems({ day, schedule, items = [], tasks = [] }) {
     });
 
   const scheduledTaskIds = new Set(scheduledItems.map((item) => item.task_id).filter(Boolean));
-  const continuationItems = buildDeadlineContinuationItems({ dayKey, tasks, scheduledTaskIds });
+  const unscheduledAssignedItems = buildUnscheduledAssignedTaskItems({ dayKey, tasks, scheduledTaskIds });
 
-  return [...scheduledItems, ...continuationItems]
+  return [...scheduledItems, ...unscheduledAssignedItems]
     .sort((a, b) => getDetailSortTime(a) - getDetailSortTime(b));
+}
+
+function isScheduleItemOnSelectedDay(item, dayKey, schedule) {
+  if (!dayKey) return true;
+  const itemDay = datePart(item.start_time || item.end_time || item.created_at);
+  if (itemDay) return itemDay === dayKey;
+  return item.schedule_id && schedule?.schedule_id && item.schedule_id === schedule.schedule_id && datePart(schedule.schedule_date) === dayKey;
 }
 
 function splitDailyDetailItems(detailItems, latestLog) {
   const sortedItems = [...detailItems].sort((a, b) => getDetailSortTime(a) - getDetailSortTime(b));
   const inferredFlowItems = buildInferredFreeTimeItems(sortedItems);
-  const breakItems = [...sortedItems.filter(isBreakScheduleItem), ...inferredFlowItems]
+  const breakItems = sortedItems.filter(isBreakScheduleItem)
     .sort((a, b) => getDetailSortTime(a) - getDetailSortTime(b));
   const taskItems = sortedItems.filter((item) => !isBreakScheduleItem(item));
   const currentTask = taskItems.find((item) => item.status === 'in_progress') || null;
@@ -5164,22 +5273,20 @@ function buildInferredFreeTimeItems(items = []) {
     const gapMinutes = Math.round((nextStart - currentEnd) / 60000);
     if (gapMinutes < 10) continue;
 
-    const flowKind = gapMinutes >= 45 ? 'free_time' : 'break';
+    const flowKind = 'free_time';
     gaps.push({
       detail_id: `flow_${datePart(currentEnd)}_${currentEnd.getTime()}_${nextStart.getTime()}`,
       schedule_item_id: null,
       task_id: null,
-      title: flowKind === 'free_time' ? 'Free Time' : 'Break Time',
+      title: 'Free Time',
       category: flowKind,
       task_kind: flowKind,
       energy_slot: flowKind,
       status: 'break',
       start_time: currentEnd.toISOString(),
       end_time: nextStart.toISOString(),
-      reason: flowKind === 'free_time' ? 'Open time between scheduled tasks' : 'Short recovery break between tasks',
-      ai_suggestion: flowKind === 'free_time'
-        ? 'Suggested: reset, eat, or prepare for the next task.'
-        : 'Suggested: short walk or rest.',
+      reason: 'Open time between scheduled tasks',
+      ai_suggestion: 'Suggested: reset, eat, or prepare for the next task.',
       is_visual_flow_item: true
     });
   }
@@ -5290,6 +5397,34 @@ function buildDeadlineContinuationItems({ dayKey, tasks = [], scheduledTaskIds }
     });
 }
 
+function buildUnscheduledAssignedTaskItems({ dayKey, tasks = [], scheduledTaskIds }) {
+  if (!dayKey) return [];
+
+  return tasks
+    .filter((task) => !scheduledTaskIds.has(task.task_id))
+    .filter((task) => !task.is_fixed_time)
+    .filter((task) => !isTaskArchived(task))
+    .filter((task) => !isTaskCompleted(task))
+    .filter((task) => getTaskAssignedDayKey(task) === dayKey)
+    .map((task, index) => withDeadlineDisplay({
+      detail_id: `unscheduled_${task.task_id || index}_${dayKey}`,
+      schedule_item_id: null,
+      task_id: task.task_id,
+      title: task.title,
+      category: task.category,
+      difficulty_level: task.difficulty_level,
+      priority_level: task.priority_level,
+      start_time: `${dayKey}T23:58:00`,
+      end_time: `${dayKey}T23:59:00`,
+      energy_slot: 'manual',
+      task_kind: 'flexible',
+      status: getWaitingStatusForItem(task, dayKey),
+      reason: 'Assigned to this day but not yet placed in a generated schedule block.',
+      task,
+      is_unscheduled_assigned_task: true
+    }, task, dayKey));
+}
+
 function shouldDisplayDeadlineTaskOnDay(task, dayKey, scheduledTaskIds = new Set()) {
   if (!task || !task.deadline || task.is_fixed_time) return false;
   if (scheduledTaskIds.has(task.task_id)) return false;
@@ -5349,6 +5484,11 @@ function getWaitingStatusForItem(item, dayKey) {
 
 function getTaskStartDayKey(task) {
   return datePart(task?.task_date) || datePart(task?.created_at);
+}
+
+function getTaskAssignedDayKey(task) {
+  if (task?.is_fixed_time) return datePart(task.fixed_date);
+  return datePart(task?.assigned_date) || datePart(task?.schedule_date) || datePart(task?.task_date) || datePart(task?.created_at);
 }
 
 function getTaskDeadlineDayKey(task) {

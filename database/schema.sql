@@ -65,6 +65,8 @@ CREATE TABLE IF NOT EXISTS tasks (
   remaining_duration_minutes INT,
   task_type VARCHAR(20) NOT NULL DEFAULT 'flexible',
   task_date DATE,
+  assigned_date DATE,
+  schedule_date DATE,
   deadline DATETIME,
   status VARCHAR(30) NOT NULL DEFAULT 'pending',
   is_completed BOOLEAN NOT NULL DEFAULT FALSE,
@@ -164,6 +166,36 @@ SET @add_tasks_completed_date := (
 PREPARE add_tasks_completed_date_stmt FROM @add_tasks_completed_date;
 EXECUTE add_tasks_completed_date_stmt;
 DEALLOCATE PREPARE add_tasks_completed_date_stmt;
+
+SET @add_tasks_assigned_date := (
+  SELECT IF(
+    COUNT(*) = 0,
+    'ALTER TABLE tasks ADD COLUMN assigned_date DATE AFTER task_date',
+    'SELECT 1'
+  )
+  FROM INFORMATION_SCHEMA.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE()
+    AND TABLE_NAME = 'tasks'
+    AND COLUMN_NAME = 'assigned_date'
+);
+PREPARE add_tasks_assigned_date_stmt FROM @add_tasks_assigned_date;
+EXECUTE add_tasks_assigned_date_stmt;
+DEALLOCATE PREPARE add_tasks_assigned_date_stmt;
+
+SET @add_tasks_schedule_date := (
+  SELECT IF(
+    COUNT(*) = 0,
+    'ALTER TABLE tasks ADD COLUMN schedule_date DATE AFTER assigned_date',
+    'SELECT 1'
+  )
+  FROM INFORMATION_SCHEMA.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE()
+    AND TABLE_NAME = 'tasks'
+    AND COLUMN_NAME = 'schedule_date'
+);
+PREPARE add_tasks_schedule_date_stmt FROM @add_tasks_schedule_date;
+EXECUTE add_tasks_schedule_date_stmt;
+DEALLOCATE PREPARE add_tasks_schedule_date_stmt;
 
 SET @add_schedule_items_actual_started_at := (
   SELECT IF(

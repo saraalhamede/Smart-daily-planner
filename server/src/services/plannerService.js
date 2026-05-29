@@ -191,6 +191,9 @@ export async function getDailyDetails(userId, date) {
   ]);
 
   const displayItems = filterScheduleItemsForDisplayDate(items, tasks, date);
+  const displayTaskIds = new Set(displayItems.map((item) => item.task_id).filter(Boolean));
+  const currentDayTasks = tasks.filter((task) => isTaskAssignedOrCompletedOnDate(task, date) || displayTaskIds.has(task.task_id));
+  const previousUnfinishedTasks = getPreviousUnfinishedTasks(tasks, date);
   const dailyCheckin = dailyLogs.find((log) => dateOnly(log.log_date) === date) || null;
   const dayFeedback = feedback.filter((item) => !item.schedule_item_id || displayItems.some((scheduleItem) => scheduleItem.schedule_item_id === item.schedule_item_id));
   const dailyEvaluation = dailyEvaluations.find((evaluation) => dateOnly(evaluation.evaluation_date) === date) || null;
@@ -199,7 +202,7 @@ export async function getDailyDetails(userId, date) {
     date,
     schedule,
     items: displayItems,
-    tasks,
+    tasks: currentDayTasks,
     dailyCheckin,
     feedback: dayFeedback,
     dailyEvaluation
@@ -210,7 +213,9 @@ export async function getDailyDetails(userId, date) {
     schedule,
     items: displayItems,
     schedule_items: displayItems,
-    tasks,
+    tasks: currentDayTasks,
+    unfinished_tasks: previousUnfinishedTasks,
+    previous_unfinished_tasks: previousUnfinishedTasks,
     daily_checkin: dailyCheckin,
     task_feedback: dayFeedback,
     ai_notes: selectLatestDailyAdviceNotes(filterAdviceNotesForCheckin(
@@ -232,11 +237,16 @@ export async function getDayData(userId, date) {
     store.listDailyEvaluations(userId)
   ]);
   const displayItems = filterScheduleItemsForDisplayDate(items, tasks, date);
+  const displayTaskIds = new Set(displayItems.map((item) => item.task_id).filter(Boolean));
+  const currentDayTasks = tasks.filter((task) => isTaskAssignedOrCompletedOnDate(task, date) || displayTaskIds.has(task.task_id));
+  const previousUnfinishedTasks = getPreviousUnfinishedTasks(tasks, date);
   return {
     date,
     daily_checkin: dailyLogs.find((log) => dateOnly(log.log_date) === date) || null,
     daily_log: dailyLogs.find((log) => dateOnly(log.log_date) === date) || null,
-    tasks: tasks.filter((task) => isTaskVisibleOnDate(task, date)),
+    tasks: currentDayTasks,
+    unfinished_tasks: previousUnfinishedTasks,
+    previous_unfinished_tasks: previousUnfinishedTasks,
     schedule,
     schedule_items: displayItems,
     items: displayItems,
@@ -603,6 +613,30 @@ export async function updateTask(taskId, input) {
   return updated;
 }
 
+export async function moveTaskToDate(taskId, input = {}) {
+  const userId = input.user_id || 'user_demo';
+  const targetDate = dateOnly(input.date || input.assigned_date || input.schedule_date || input.task_date);
+  if (!targetDate) throw createHttpError(400, 'date is required.');
+  assertWritableDay(targetDate);
+
+  const task = await store.getTask(taskId);
+  if (!task || task.user_id !== userId) throw createHttpError(404, 'Task not found.');
+  if (isTaskComplete(task)) throw createHttpError(400, 'Completed tasks stay on their completion day and cannot be moved.');
+  if (task.is_fixed_time) throw createHttpError(400, 'Fixed-time tasks must be edited with a new fixed date instead of moved.');
+  if (['removed', 'deleted', 'cancelled'].includes(String(task.status || '').toLowerCase())) {
+    throw createHttpError(400, 'Removed tasks cannot be moved to another day.');
+  }
+
+  const updated = await store.updateTask(taskId, {
+    assigned_date: targetDate,
+    schedule_date: targetDate,
+    status: task.status === 'in_progress' ? 'pending' : task.status || 'pending',
+    updated_at: new Date().toISOString()
+  });
+
+  return { task: updated };
+}
+
 export async function startTaskOnDate(taskId, input = {}) {
   const userId = input.user_id || 'user_demo';
   const date = dateOnly(input.date || input.schedule_date || todayKey());
@@ -613,8 +647,8 @@ export async function startTaskOnDate(taskId, input = {}) {
   if (isBreakScheduleItem(task)) throw createHttpError(400, 'Breaks cannot be started like tasks.');
   if (task.is_fixed_time) throw createHttpError(400, 'Fixed-time tasks start automatically at their scheduled time.');
   if (isTaskComplete(task)) throw createHttpError(400, 'This task is already completed.');
-  if (!isTaskVisibleOnDate(task, date)) {
-    throw createHttpError(400, 'This task is not available on the selected day.');
+  if (!isTaskAssignedToDate(task, date)) {
+    throw createHttpError(400, 'Move this task to the selected day before starting it.');
   }
 
   const existingItems = await store.listScheduleItemsForDate(userId, date);
@@ -641,7 +675,7 @@ export async function startTaskOnDate(taskId, input = {}) {
 
   const draft = {
     schedule_date: date,
-    schedule_note: 'Manual schedule block created because the user chose to work on this deadline task before its deadline.',
+    schedule_note: 'Manual schedule block created because the user chose to work on this task on the selected day.',
     items: [{
       task_id: task.task_id,
       title: task.title,
@@ -652,7 +686,7 @@ export async function startTaskOnDate(taskId, input = {}) {
       end_time: plannedEnd,
       energy_slot: 'manual',
       task_kind: 'flexible',
-      reason: 'Started manually before the deadline.'
+      reason: 'Started manually on the selected day.'
     }]
   };
 
@@ -687,7 +721,11 @@ export async function generateSchedule(input) {
   }
   assertWritableDay(dateOnly(context.dailyLog.log_date));
 
-  const dayTasks = context.tasks.filter((task) => shouldTaskBeAvailableForSchedule(task, context.dailyLog.log_date));
+  const scheduledTaskIdsForDay = new Set((context.scheduleItems || []).map((item) => item.task_id).filter(Boolean));
+  const dayTasks = context.tasks.filter((task) => (
+    shouldTaskBeAvailableForSchedule(task, context.dailyLog.log_date) ||
+    (!isTaskComplete(task) && scheduledTaskIdsForDay.has(task.task_id))
+  ));
   if (dayTasks.length === 0) {
     throw createHttpError(400, 'Add at least one task before generating the schedule.');
   }
@@ -704,7 +742,7 @@ export async function generateSchedule(input) {
     userId,
     dailyLog: context.dailyLog,
     preferences: normalizePreferencesForScheduler(context.preferences),
-    tasks: context.tasks,
+    tasks: dayTasks,
     feedback: context.feedback,
     scheduleDate: context.dailyLog.log_date
   });
@@ -857,8 +895,10 @@ async function loadScheduleContext(userId, dailyLogId, scheduleDate) {
   const dailyLog = dailyLogId
     ? dailyLogs.find((item) => item.log_id === dailyLogId || item.checkin_id === dailyLogId)
     : dailyLogs.find((item) => dateOnly(item.log_date) === scheduleDate) || latestRecord(dailyLogs);
+  const targetDate = dateOnly(dailyLog?.log_date || scheduleDate);
+  const scheduleItems = targetDate ? await store.listScheduleItemsForDate(userId, targetDate) : [];
 
-  return { preferences, dailyLog, tasks, feedback };
+  return { preferences, dailyLog, tasks, feedback, scheduleItems };
 }
 
 async function updateTaskAndItemFromFeedback(feedback, sourceItem = null) {
@@ -1114,7 +1154,7 @@ function buildDailyAdviceContext({ userId, date, schedule, items = [], tasks = [
   const inProgressItem = activeItems.find((item) => item.status === 'in_progress') || null;
   const waitingItems = activeItems.filter((item) => item.status === 'waiting' || item.status === 'overdue');
   const scheduledTaskIds = new Set(activeItems.map((item) => item.task_id).filter(Boolean));
-  const visibleTasks = tasks.filter((task) => isTaskVisibleOnDate(task, date));
+  const visibleTasks = tasks.filter((task) => isTaskAssignedOrCompletedOnDate(task, date));
   const unscheduledTasks = visibleTasks.filter((task) => !scheduledTaskIds.has(task.task_id) && !isTaskComplete(task));
   const deadlineTasks = visibleTasks
     .filter((task) => task.deadline && !isTaskComplete(task))
@@ -1788,6 +1828,8 @@ async function buildTaskRecord(input) {
     remaining_duration_minutes: enriched.estimated_duration_minutes,
     task_type: isFixed ? 'fixed' : 'flexible',
     task_date: input.task_date || deriveTaskDate({ ...input, is_fixed_time: isFixed }),
+    assigned_date: input.assigned_date || input.schedule_date || input.task_date || deriveTaskDate({ ...input, is_fixed_time: isFixed }),
+    schedule_date: input.schedule_date || input.assigned_date || input.task_date || deriveTaskDate({ ...input, is_fixed_time: isFixed }),
     deadline: normalizeDateTimeInput(input.deadline),
     status: 'pending',
     is_completed: false,
@@ -1837,6 +1879,8 @@ function buildTaskUpdates(input, existing) {
       : undefined,
     task_type: isFixed ? 'fixed' : 'flexible',
     task_date: input.task_date,
+    assigned_date: input.assigned_date,
+    schedule_date: input.schedule_date,
     deadline: input.deadline !== undefined ? normalizeDateTimeInput(input.deadline) : undefined,
     is_fixed_time: isFixed,
     fixed_date: isFixed ? input.fixed_date || existing.fixed_date || input.task_date : null,
@@ -1938,9 +1982,7 @@ function deriveTaskDate(input) {
 function shouldTaskBeAvailableForSchedule(task, targetDate) {
   if (task.status === 'removed' || task.status === 'deleted' || task.status === 'in_progress' || task.is_completed) return false;
   if (task.is_fixed_time) return dateOnly(task.fixed_date) === targetDate;
-  const startDate = dateOnly(task.task_date) || dateOnly(task.created_at);
-  if (startDate && targetDate < startDate) return false;
-  return !task.deadline || targetDate <= dateOnly(task.deadline);
+  return isTaskAssignedToDate(task, targetDate);
 }
 
 function isTaskVisibleOnDate(task, targetDate) {
@@ -1955,6 +1997,37 @@ function isTaskVisibleOnDate(task, targetDate) {
   if (startDate && targetDate < startDate) return false;
   if (deadlineDate && targetDate <= deadlineDate) return true;
   return startDate === targetDate;
+}
+
+function isTaskAssignedToDate(task, targetDate) {
+  if (!task || !targetDate) return false;
+  if (task.is_fixed_time) return dateOnly(task.fixed_date) === targetDate;
+  return getTaskAssignedDate(task) === targetDate;
+}
+
+function isTaskAssignedOrCompletedOnDate(task, targetDate) {
+  if (!task || ['removed', 'deleted', 'cancelled'].includes(String(task.status || '').toLowerCase())) return false;
+  const completedDate = dateOnly(task.completed_date || task.completed_on || task.completed_at);
+  if (completedDate) return completedDate === targetDate;
+  return isTaskAssignedToDate(task, targetDate);
+}
+
+function getTaskAssignedDate(task) {
+  if (!task) return null;
+  if (task.is_fixed_time) return dateOnly(task.fixed_date);
+  return dateOnly(task.assigned_date || task.schedule_date || task.task_date || task.created_at);
+}
+
+function getPreviousUnfinishedTasks(tasks = [], targetDate) {
+  return tasks
+    .filter((task) => !task.is_fixed_time)
+    .filter((task) => !isTaskComplete(task))
+    .filter((task) => !['removed', 'deleted', 'cancelled'].includes(String(task.status || '').toLowerCase()))
+    .filter((task) => {
+      const assignedDate = getTaskAssignedDate(task);
+      return assignedDate && assignedDate < targetDate;
+    })
+    .sort((a, b) => (getTaskAssignedDate(b) || '').localeCompare(getTaskAssignedDate(a) || ''));
 }
 
 function normalizePreferencesForScheduler(preferences) {
