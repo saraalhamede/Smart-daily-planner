@@ -787,7 +787,7 @@ function WeeklyDashboard({ tasks, scheduleItems, latestLog, dailyLogs = [], dail
           <div className="section-title-row">
             <div>
               <p className="eyebrow">Task Follow Up</p>
-              <h2>Unfinished Tasks This Week, you doing well</h2>
+              <h2>{getWeeklyFollowUpTitle(weeklyData.unfinishedTasks.length)}</h2>
             </div>
             <ListChecks size={30} />
           </div>
@@ -2644,25 +2644,24 @@ function DailyDetailsPage({
         lastFeedback: { ...currentState.feedbackDraft, ...result.feedback },
         feedbackDraft: getDefaultProgressFeedbackDraft()
       }));
-      await onDataRefresh?.();
+      const refreshed = await plannerApi.getDailyDetails(userId, dayKey);
+      applyDailyDetailsData(refreshed);
     } catch (error) {
       setNotice(error.message);
       return;
     }
 
     if (outcome === 'completed') {
-      await finishTask(item);
       setNotice('Feedback saved. Task moved to Completed Tasks.');
       return;
     }
 
     if (outcome === 'waiting') {
-      await returnToWaiting(item);
-      setNotice('Feedback saved. Task returned to Waiting Tasks.');
+      setNotice('Feedback saved. Remaining task times were updated and the task returned to Waiting Tasks.');
       return;
     }
 
-    setNotice('Feedback saved. Task is still in progress.');
+    setNotice('Feedback saved. Remaining task times were updated.');
   }
 
   function beginEdit(item) {
@@ -2892,7 +2891,7 @@ function DailyDetailsPage({
       <div className="daily-details-grid">
         <section className="daily-details-card waiting-card">
           <DailyDetailsCardHeader icon={ListChecks} eyebrow="Planned" title="Waiting Tasks" />
-          {details.waitingFlowItems.length === 0 ? (
+          {details.waitingTasks.length === 0 ? (
             <p className="no-results">No waiting tasks yet</p>
           ) : (
             <div className="detail-task-list">
@@ -4505,12 +4504,12 @@ function buildWeeklyDashboardData({ tasks = [], scheduleItems = [], latestLog, d
     hasStressData: days.some((day) => day.stressLevel > 0),
     rangeLabel: `${weekDays[0].shortDate} - ${weekDays[6].shortDate}`,
     days,
-    unfinishedTasks: weeklyTasks
-      .filter(({ task }) => !isTaskCompleted(task))
+    unfinishedTasks: dedupeTasksById(weeklyTasks
+      .filter(({ task }) => isTaskUnfinished(task))
       .map(({ task, day }) => ({
         ...task,
         relatedDay: `${day.dayName} ${day.shortDate}`
-      })),
+      }))),
     review: {
       score,
       completed,
@@ -4523,6 +4522,26 @@ function buildWeeklyDashboardData({ tasks = [], scheduleItems = [], latestLog, d
           : 'Try to complete more tasks tomorrow'
     }
   };
+}
+
+function getWeeklyFollowUpTitle(unfinishedCount) {
+  if (unfinishedCount === 0) return 'No Unfinished Tasks This Week';
+  if (unfinishedCount === 1) return '1 Unfinished Task This Week';
+  return `${unfinishedCount} Unfinished Tasks This Week`;
+}
+
+function isTaskUnfinished(task) {
+  return Boolean(task) && !isTaskCompleted(task) && !isTaskArchived(task);
+}
+
+function dedupeTasksById(tasks = []) {
+  const seen = new Set();
+  return tasks.filter((task) => {
+    const key = task.task_id || `${task.title}|${task.relatedDay}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 function buildCalendarMonthData({ visibleMonth, tasks = [], scheduleItems = [], dailyLogs = [], dailyEvaluations = [] }) {
@@ -5024,7 +5043,9 @@ function getDayCircleLabel({ isNewUser, isFuture, totalTasks, rawProgress }) {
 }
 
 function isTaskCompleted(task) {
-  return Boolean(task?.is_completed) || task?.status === 'completed';
+  return parseBooleanValue(task?.is_completed) ||
+    String(task?.status || '').toLowerCase() === 'completed' ||
+    Boolean(task?.completed_date || task?.completed_on || task?.completed_at);
 }
 
 function isTaskArchived(task) {
@@ -5242,8 +5263,9 @@ function splitDailyDetailItems(detailItems, latestLog) {
   const currentTask = taskItems.find((item) => item.status === 'in_progress') || null;
   const completedTasks = taskItems.filter((item) => item.status === 'completed');
   const waitingTasks = taskItems.filter((item) => item.status === 'waiting' || item.status === 'overdue');
-  const waitingFlowItems = [...waitingTasks, ...breakItems]
-    .sort((a, b) => getDetailSortTime(a) - getDetailSortTime(b));
+  const waitingFlowItems = waitingTasks.length > 0
+    ? [...waitingTasks, ...breakItems].sort((a, b) => getDetailSortTime(a) - getDetailSortTime(b))
+    : [];
   const timelineItems = [...sortedItems, ...inferredFlowItems]
     .sort((a, b) => getDetailSortTime(a) - getDetailSortTime(b));
   const advice = buildDailyAdvice({ waitingTasks, completedTasks, currentTask, latestLog, dayItems: taskItems, breakItems });

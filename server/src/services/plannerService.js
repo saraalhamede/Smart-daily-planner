@@ -280,7 +280,7 @@ export async function getWeeklyDashboard(userId, date = todayKey()) {
   const checkinByDate = new Map(dailyLogs.map((log) => [dateOnly(log.log_date), log]));
   const taskCounts = weekDays.map((dayKey) => {
     const dayTasks = tasks.filter((task) => isTaskVisibleOnDate(task, dayKey));
-    const completed = dayTasks.filter((task) => Boolean(task.is_completed) || task.status === 'completed').length;
+    const completed = dayTasks.filter(isTaskComplete).length;
     const evaluation = evaluationByDate.get(dayKey);
     const completionPercentage = getCompletionPercentage(completed, dayTasks.length);
     return {
@@ -300,8 +300,7 @@ export async function getWeeklyDashboard(userId, date = todayKey()) {
     week_end: weekDays[weekDays.length - 1],
     days: taskCounts,
     unfinished_tasks: tasks.filter((task) => (
-      !task.is_completed &&
-      task.status !== 'completed' &&
+      !isTaskComplete(task) &&
       !['removed', 'deleted', 'cancelled'].includes(String(task.status || '').toLowerCase()) &&
       weekDays.some((dayKey) => isTaskVisibleOnDate(task, dayKey))
     )),
@@ -333,7 +332,7 @@ export async function getCalendarMonth(userId, month, year) {
   for (let day = 1; day <= lastDate.getDate(); day += 1) {
     const key = `${yearNumber}-${String(monthNumber).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
     const dayTasks = tasks.filter((task) => isTaskVisibleOnDate(task, key));
-    const completed = dayTasks.filter((task) => Boolean(task.is_completed) || task.status === 'completed').length;
+    const completed = dayTasks.filter(isTaskComplete).length;
     const evaluation = dailyEvaluations.find((item) => dateOnly(item.evaluation_date) === key);
     const checkin = dailyLogs.find((item) => dateOnly(item.log_date) === key);
     const completionPercentage = getCompletionPercentage(completed, dayTasks.length);
@@ -777,7 +776,7 @@ export async function submitFeedback(input) {
 
   const date = sourceItem ? dateOnly(sourceItem.start_time) : null;
   const evaluation = date ? await saveDailyEvaluationForDate(feedback.user_id, date) : null;
-  const reschedule = outcome === 'completed' ? null : await rescheduleAfterFeedback(feedback);
+  const reschedule = await rescheduleAfterFeedback(feedback);
 
   return {
     feedback,
@@ -1016,33 +1015,97 @@ async function rescheduleAfterFeedback(feedback) {
   const dailyLog = await store.getDailyLog(sourceSchedule.daily_log_id);
   if (!dailyLog) return null;
 
-  const [preferences, tasks, feedbackList] = await Promise.all([
+  const [preferences, tasks, feedbackList, dayItems] = await Promise.all([
     store.getUserPreferences(feedback.user_id),
     store.listTasks(feedback.user_id),
-    store.listFeedback(feedback.user_id)
+    store.listFeedback(feedback.user_id),
+    store.listScheduleItemsForDate(feedback.user_id, sourceSchedule.schedule_date)
   ]);
+  const feedbackTime = normalizeDateTimeInput(feedback.created_at) || new Date().toISOString();
+  const dayTasks = tasks.filter((task) => (
+    shouldTaskBeAvailableForSchedule(task, sourceSchedule.schedule_date) ||
+    task.task_id === feedback.task_id
+  ));
 
   const aiHints = await generateScheduleHintsWithAi({
     user_id: feedback.user_id,
     daily_checkin: dailyLog,
     preferences,
-    tasks,
+    tasks: dayTasks,
     feedback: feedbackList,
     feedback_context: feedback
   });
 
-  const draft = generateDailySchedule({
+  const activeTask = dayTasks.find((task) => task.task_id === feedback.task_id) || null;
+  const activeItem = buildRescheduledActiveItem(sourceItem, activeTask, feedback, feedbackTime);
+  const rescheduleFrom = activeItem?.end_time || feedbackTime;
+  const futureDraft = generateDailySchedule({
     userId: feedback.user_id,
     dailyLog,
     preferences: normalizePreferencesForScheduler(preferences),
-    tasks,
+    tasks: dayTasks,
     feedback: feedbackList,
     scheduleDate: sourceSchedule.schedule_date,
-    rescheduleFrom: sourceItem.end_time,
+    rescheduleFrom,
     feedbackContext: feedback
   });
+  const historyItems = dayItems
+    .filter((item) => shouldPreserveHistoryItemDuringReschedule(item, feedbackTime))
+    .map(copyScheduleItemForReschedule);
+  const draft = {
+    ...futureDraft,
+    items: [...historyItems, ...(activeItem ? [activeItem] : []), ...futureDraft.items]
+      .sort((a, b) => new Date(a.start_time) - new Date(b.start_time))
+  };
 
   return saveSchedule(feedback.user_id, dailyLog.log_id, draft, 'rescheduled', aiHints);
+}
+
+function buildRescheduledActiveItem(sourceItem, task, feedback, feedbackTime) {
+  if (!sourceItem || !task || !['in_progress', 'still_in_progress'].includes(feedback.outcome)) return null;
+  const remainingMinutes = Math.max(15, parseInteger(task.remaining_duration_minutes, task.estimated_duration_minutes || 30));
+  const actualStartedAt = sourceItem.actual_started_at || sourceItem.started_at || feedbackTime;
+  return {
+    task_id: task.task_id,
+    title: task.title,
+    category: task.category || sourceItem.category || null,
+    difficulty_level: task.difficulty_level || sourceItem.difficulty_level || null,
+    priority_level: task.priority_level || sourceItem.priority_level || null,
+    start_time: actualStartedAt,
+    end_time: addMinutes(feedbackTime, remainingMinutes).toISOString(),
+    energy_slot: sourceItem.energy_slot || 'manual',
+    task_kind: sourceItem.task_kind || 'flexible',
+    reason: 'Active task timing updated from the latest feedback.',
+    status: 'in_progress',
+    started_at: actualStartedAt,
+    actual_started_at: actualStartedAt
+  };
+}
+
+function shouldPreserveHistoryItemDuringReschedule(item, feedbackTime) {
+  if (item.status === 'completed') return true;
+  return isBreakScheduleItem(item) && new Date(item.end_time) <= new Date(feedbackTime);
+}
+
+function copyScheduleItemForReschedule(item) {
+  return {
+    task_id: item.task_id || null,
+    title: item.title,
+    category: item.category || null,
+    difficulty_level: item.difficulty_level || null,
+    priority_level: item.priority_level || null,
+    start_time: item.start_time,
+    end_time: item.end_time,
+    energy_slot: item.energy_slot,
+    task_kind: item.task_kind,
+    reason: item.reason,
+    status: item.status,
+    started_at: item.started_at || null,
+    actual_started_at: item.actual_started_at || null,
+    completed_at: item.completed_at || null,
+    actual_completed_at: item.actual_completed_at || null,
+    actual_duration_minutes: item.actual_duration_minutes || null
+  };
 }
 
 async function saveSchedule(userId, dailyLogId, draft, status, aiHints = null) {
@@ -1069,6 +1132,11 @@ async function saveSchedule(userId, dailyLogId, draft, status, aiHints = null) {
     task_kind: item.task_kind,
     reason: item.reason,
     status: item.status || (item.task_kind === 'break' ? 'break' : 'waiting'),
+    started_at: item.started_at || null,
+    actual_started_at: item.actual_started_at || null,
+    completed_at: item.completed_at || null,
+    actual_completed_at: item.actual_completed_at || null,
+    actual_duration_minutes: item.actual_duration_minutes || null,
     created_at: new Date().toISOString()
   }));
 
@@ -1396,7 +1464,9 @@ function estimateProductivityScore(completedCount, unfinishedCount) {
 }
 
 function isTaskComplete(task) {
-  return Boolean(task?.is_completed) || task?.status === 'completed';
+  return parseBoolean(task?.is_completed) ||
+    String(task?.status || '').toLowerCase() === 'completed' ||
+    Boolean(task?.completed_date || task?.completed_on || task?.completed_at);
 }
 
 function isBreakScheduleItem(item = {}) {
