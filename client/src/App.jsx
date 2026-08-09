@@ -5260,15 +5260,16 @@ function splitDailyDetailItems(detailItems, latestLog) {
   const breakItems = sortedItems.filter(isBreakScheduleItem)
     .sort((a, b) => getDetailSortTime(a) - getDetailSortTime(b));
   const taskItems = sortedItems.filter((item) => !isBreakScheduleItem(item));
-  const currentTask = taskItems.find((item) => item.status === 'in_progress') || null;
-  const completedTasks = taskItems.filter((item) => item.status === 'completed');
-  const waitingTasks = taskItems.filter((item) => item.status === 'waiting' || item.status === 'overdue');
+  const taskCards = collapseDailyTaskCards(taskItems);
+  const currentTask = taskCards.find((item) => item.status === 'in_progress') || null;
+  const completedTasks = taskCards.filter((item) => item.status === 'completed');
+  const waitingTasks = taskCards.filter((item) => item.status === 'waiting' || item.status === 'overdue');
   const waitingFlowItems = waitingTasks.length > 0
     ? [...waitingTasks, ...breakItems].sort((a, b) => getDetailSortTime(a) - getDetailSortTime(b))
     : [];
   const timelineItems = [...sortedItems, ...inferredFlowItems]
     .sort((a, b) => getDetailSortTime(a) - getDetailSortTime(b));
-  const advice = buildDailyAdvice({ waitingTasks, completedTasks, currentTask, latestLog, dayItems: taskItems, breakItems });
+  const advice = buildDailyAdvice({ waitingTasks, completedTasks, currentTask, latestLog, dayItems: taskCards, breakItems });
 
   return {
     waitingTasks,
@@ -5279,6 +5280,43 @@ function splitDailyDetailItems(detailItems, latestLog) {
     timeline: timelineItems,
     advice
   };
+}
+
+function collapseDailyTaskCards(items = []) {
+  const groups = new Map();
+
+  items.forEach((item) => {
+    const key = item.task_id || getDetailItemId(item);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(item);
+  });
+
+  return [...groups.values()].map((group) => {
+    const representative = [...group].sort((a, b) => {
+      const statusDifference = getDailyCardStatusRank(b.status) - getDailyCardStatusRank(a.status);
+      if (statusDifference !== 0) return statusDifference;
+      return getDetailSortTime(a) - getDetailSortTime(b);
+    })[0];
+    const plannedDurationMinutes = group.reduce(
+      (sum, item) => sum + getDurationMinutes(item.start_time, item.end_time),
+      0
+    );
+
+    return {
+      ...representative,
+      task_blocks: group,
+      planned_duration_minutes: plannedDurationMinutes
+    };
+  });
+}
+
+function getDailyCardStatusRank(status) {
+  return {
+    in_progress: 4,
+    completed: 3,
+    overdue: 2,
+    waiting: 1
+  }[status] || 0;
 }
 
 function buildInferredFreeTimeItems(items = []) {
@@ -5753,7 +5791,7 @@ function buildCompletedTaskEvaluation(item) {
 }
 
 function buildDailyEvaluation(details, activeTaskUi, latestLog) {
-  const totalTasks = details.timeline.filter((item) => !isBreakScheduleItem(item)).length;
+  const totalTasks = details.completedTasks.length + details.waitingTasks.length + (details.currentTask ? 1 : 0);
   const completedTasks = details.completedTasks.length;
   const unfinishedTasks = Math.max(0, totalTasks - completedTasks);
   const completionPercentage = totalTasks ? Math.round((completedTasks / totalTasks) * 100) : 0;
@@ -5820,6 +5858,10 @@ function getProductivityScoreTone(score) {
 }
 
 function getPlannedDurationMinutes(item) {
+  const groupedDuration = Number.parseInt(item.planned_duration_minutes, 10);
+  if (!Number.isNaN(groupedDuration) && groupedDuration > 0) {
+    return groupedDuration;
+  }
   if (item.is_deadline_continuation) {
     const estimated = Number.parseInt(
       item.task?.remaining_duration_minutes || item.task?.estimated_duration_minutes || item.estimated_duration_minutes,

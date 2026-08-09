@@ -1,6 +1,10 @@
 import crypto from 'node:crypto';
 import { categorizeTask } from '../logic/ai.js';
 import { generateDailySchedule } from '../logic/scheduler.js';
+import {
+  groupScheduleItemsByTask,
+  reconcileScheduleItemsForDate
+} from '../logic/scheduleDedup.js';
 import { createId } from '../utils/id.js';
 import { createHttpError } from '../utils/httpError.js';
 import { getStore } from '../data/store.js';
@@ -181,16 +185,20 @@ export async function getDailyDetails(userId, date) {
   if (!date) throw createHttpError(400, 'date is required.');
   await autoTransitionFixedTasks(userId, date);
 
-  const [schedule, items, tasks, dailyLogs, feedback, dailyEvaluations] = await Promise.all([
+  const completedHistoryRequest = typeof store.listCompletedScheduleItemsForDate === 'function'
+    ? store.listCompletedScheduleItemsForDate(userId, date)
+    : Promise.resolve([]);
+  const [schedule, currentItems, completedHistory, tasks, dailyLogs, feedback, dailyEvaluations] = await Promise.all([
     store.getScheduleByDate(userId, date),
     store.listScheduleItemsForDate(userId, date),
+    completedHistoryRequest,
     store.listTasks(userId),
     store.listDailyLogs(userId),
     store.listFeedback(userId),
     store.listDailyEvaluations(userId)
   ]);
 
-  const displayItems = filterScheduleItemsForDisplayDate(items, tasks, date);
+  const displayItems = filterScheduleItemsForDisplayDate(currentItems, tasks, date, completedHistory);
   const displayTaskIds = new Set(displayItems.map((item) => item.task_id).filter(Boolean));
   const currentDayTasks = tasks.filter((task) => isTaskAssignedOrCompletedOnDate(task, date) || displayTaskIds.has(task.task_id));
   const previousUnfinishedTasks = getPreviousUnfinishedTasks(tasks, date);
@@ -228,15 +236,19 @@ export async function getDailyDetails(userId, date) {
 
 export async function getDayData(userId, date) {
   if (!date) throw createHttpError(400, 'date is required.');
-  const [tasks, dailyLogs, schedule, items, aiNotes, dailyEvaluations] = await Promise.all([
+  const completedHistoryRequest = typeof store.listCompletedScheduleItemsForDate === 'function'
+    ? store.listCompletedScheduleItemsForDate(userId, date)
+    : Promise.resolve([]);
+  const [tasks, dailyLogs, schedule, currentItems, completedHistory, aiNotes, dailyEvaluations] = await Promise.all([
     store.listTasks(userId),
     store.listDailyLogs(userId),
     store.getScheduleByDate(userId, date),
     store.listScheduleItemsForDate(userId, date),
+    completedHistoryRequest,
     store.listAiNotes(userId),
     store.listDailyEvaluations(userId)
   ]);
-  const displayItems = filterScheduleItemsForDisplayDate(items, tasks, date);
+  const displayItems = filterScheduleItemsForDisplayDate(currentItems, tasks, date, completedHistory);
   const displayTaskIds = new Set(displayItems.map((item) => item.task_id).filter(Boolean));
   const currentDayTasks = tasks.filter((task) => isTaskAssignedOrCompletedOnDate(task, date) || displayTaskIds.has(task.task_id));
   const previousUnfinishedTasks = getPreviousUnfinishedTasks(tasks, date);
@@ -1218,9 +1230,10 @@ function buildDailyAdviceContext({ userId, date, schedule, items = [], tasks = [
   const breakItems = items.filter(isBreakScheduleItem);
   const inferredBreaksCount = countScheduleFreeTimeGaps(items);
   const activeItems = items.filter((item) => item.status !== 'removed' && !isBreakScheduleItem(item));
-  const completedItems = activeItems.filter((item) => item.status === 'completed');
-  const inProgressItem = activeItems.find((item) => item.status === 'in_progress') || null;
-  const waitingItems = activeItems.filter((item) => item.status === 'waiting' || item.status === 'overdue');
+  const taskItems = groupScheduleItemsByTask(activeItems).map((group) => group.representative);
+  const completedItems = taskItems.filter((item) => item.status === 'completed');
+  const inProgressItem = taskItems.find((item) => item.status === 'in_progress') || null;
+  const waitingItems = taskItems.filter((item) => item.status === 'waiting' || item.status === 'overdue');
   const scheduledTaskIds = new Set(activeItems.map((item) => item.task_id).filter(Boolean));
   const visibleTasks = tasks.filter((task) => isTaskAssignedOrCompletedOnDate(task, date));
   const unscheduledTasks = visibleTasks.filter((task) => !scheduledTaskIds.has(task.task_id) && !isTaskComplete(task));
@@ -1295,10 +1308,15 @@ function buildPeriodAdviceContext({ userId, period, startDate, dailyLogs = [], f
   };
 }
 
-function filterScheduleItemsForDisplayDate(items = [], tasks = [], date) {
+function filterScheduleItemsForDisplayDate(items = [], tasks = [], date, completedHistory = []) {
   const taskById = new Map(tasks.map((task) => [task.task_id, task]));
-  return items.filter((item) => {
+  const reconciledItems = reconcileScheduleItemsForDate(items, completedHistory, tasks, date);
+  return reconciledItems.filter((item) => {
     const task = taskById.get(item.task_id) || item.task || null;
+    const taskStatus = String(task?.status || '').toLowerCase();
+    if (['removed', 'deleted', 'cancelled'].includes(taskStatus) && !isTaskComplete(task)) {
+      return false;
+    }
     const completionDate = getCompletionDateForItem(item, task);
     if (!completionDate) return true;
     return completionDate === date;
@@ -1792,21 +1810,29 @@ function normalizeGeneratedSubtasks(subtasks) {
 }
 
 async function saveDailyEvaluationForDate(userId, date) {
-  const [items, dailyLogs, schedules] = await Promise.all([
+  const completedHistoryRequest = typeof store.listCompletedScheduleItemsForDate === 'function'
+    ? store.listCompletedScheduleItemsForDate(userId, date)
+    : Promise.resolve([]);
+  const [currentItems, completedHistory, tasks, dailyLogs, schedules] = await Promise.all([
     store.listScheduleItemsForDate(userId, date),
+    completedHistoryRequest,
+    store.listTasks(userId),
     store.listDailyLogs(userId),
     store.listSchedules(userId)
   ]);
+  const items = filterScheduleItemsForDisplayDate(currentItems, tasks, date, completedHistory);
   const dayLog = dailyLogs.find((log) => dateOnly(log.log_date) === date);
   const schedule = latestRecord(schedules.filter((item) => dateOnly(item.schedule_date) === date), 'generated_at');
   const activeItems = items.filter((item) => item.status !== 'removed' && !isBreakScheduleItem(item));
-  const completedItems = activeItems.filter((item) => item.status === 'completed');
-  const totalTasks = activeItems.length;
-  const completedTasks = completedItems.length;
+  const taskGroups = groupScheduleItemsByTask(activeItems);
+  const completedGroups = taskGroups.filter((group) => group.representative.status === 'completed');
+  const totalTasks = taskGroups.length;
+  const completedTasks = completedGroups.length;
   const unfinishedTasks = Math.max(0, totalTasks - completedTasks);
   const completionPercentage = totalTasks ? Math.round((completedTasks / totalTasks) * 100) : 0;
-  const plannedMinutes = activeItems.reduce((sum, item) => sum + getDurationMinutes(item.start_time, item.end_time), 0);
-  const actualMinutes = completedItems.reduce((sum, item) => {
+  const plannedMinutes = taskGroups.reduce((sum, group) => sum + group.planned_minutes, 0);
+  const actualMinutes = completedGroups.reduce((sum, group) => {
+    const item = group.representative;
     const actual = parseOptionalInteger(item.actual_duration_minutes);
     return sum + (actual || getDurationMinutes(item.actual_started_at || item.started_at || item.start_time, item.actual_completed_at || item.completed_at || item.end_time));
   }, 0);

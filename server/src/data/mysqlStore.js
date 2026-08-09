@@ -1,4 +1,5 @@
 import { pool } from './mysqlPool.js';
+import { selectCanonicalScheduleRows } from '../logic/scheduleDedup.js';
 
 async function one(sql, params = {}) {
   const [rows] = await pool.execute(sql, params);
@@ -303,7 +304,31 @@ export const mysqlStore = {
     );
   },
 
+  async archiveDuplicateGeneratedSchedules(userId, scheduleDate = null) {
+    await pool.execute(
+      `UPDATE schedules s
+       INNER JOIN (
+         SELECT schedule_id
+         FROM (
+           SELECT schedule_id,
+                  ROW_NUMBER() OVER (
+                    PARTITION BY user_id, schedule_date
+                    ORDER BY generated_at DESC, schedule_id DESC
+                  ) AS schedule_rank
+           FROM schedules
+           WHERE user_id = :userId
+             AND status NOT IN ('replaced', 'manual')
+             AND (:scheduleDate IS NULL OR schedule_date = :scheduleDate)
+         ) ranked_schedules
+         WHERE schedule_rank > 1
+       ) duplicate_schedules ON duplicate_schedules.schedule_id = s.schedule_id
+       SET s.status = 'replaced'`,
+      { userId, scheduleDate }
+    );
+  },
+
   async listSchedules(userId) {
+    await this.archiveDuplicateGeneratedSchedules(userId);
     const rows = await many(
       'SELECT * FROM schedules WHERE user_id = :userId ORDER BY generated_at ASC',
       { userId }
@@ -317,10 +342,15 @@ export const mysqlStore = {
   },
 
   async getScheduleByDate(userId, scheduleDate) {
+    await this.archiveDuplicateGeneratedSchedules(userId, scheduleDate);
     const row = await one(
       `SELECT * FROM schedules
        WHERE user_id = :userId AND schedule_date = :scheduleDate AND status <> 'replaced'
-       ORDER BY generated_at DESC LIMIT 1`,
+       ORDER BY
+         CASE WHEN status = 'manual' THEN 1 ELSE 0 END,
+         generated_at DESC,
+         schedule_id DESC
+       LIMIT 1`,
       { userId, scheduleDate }
     );
     return withLegacySchedule(row);
@@ -336,7 +366,11 @@ export const mysqlStore = {
 
   async listAllScheduleItems(userId) {
     const rows = await many(
-      `SELECT si.*
+      `SELECT si.*,
+              s.schedule_id AS _schedule_id,
+              s.schedule_date AS _schedule_date,
+              s.status AS _schedule_status,
+              s.generated_at AS _schedule_generated_at
        FROM schedule_items si
        INNER JOIN schedules s ON s.schedule_id = si.schedule_id
        WHERE s.user_id = :userId
@@ -345,12 +379,16 @@ export const mysqlStore = {
        ORDER BY si.start_time ASC`,
       { userId }
     );
-    return hydrateScheduleItems(rows);
+    return hydrateScheduleItems(selectCanonicalScheduleRows(rows));
   },
 
   async listScheduleItemsForDate(userId, scheduleDate) {
     const rows = await many(
-      `SELECT si.*
+      `SELECT si.*,
+              s.schedule_id AS _schedule_id,
+              s.schedule_date AS _schedule_date,
+              s.status AS _schedule_status,
+              s.generated_at AS _schedule_generated_at
        FROM schedule_items si
        INNER JOIN schedules s ON s.schedule_id = si.schedule_id
        WHERE s.user_id = :userId
@@ -358,6 +396,20 @@ export const mysqlStore = {
          AND s.status <> 'replaced'
          AND si.status <> 'removed'
        ORDER BY si.start_time ASC`,
+      { userId, scheduleDate }
+    );
+    return hydrateScheduleItems(selectCanonicalScheduleRows(rows));
+  },
+
+  async listCompletedScheduleItemsForDate(userId, scheduleDate) {
+    const rows = await many(
+      `SELECT si.*
+       FROM schedule_items si
+       INNER JOIN schedules s ON s.schedule_id = si.schedule_id
+       WHERE s.user_id = :userId
+         AND si.status = 'completed'
+         AND DATE(COALESCE(si.actual_completed_at, si.completed_at)) = :scheduleDate
+       ORDER BY COALESCE(si.actual_completed_at, si.completed_at) ASC`,
       { userId, scheduleDate }
     );
     return hydrateScheduleItems(rows);
@@ -370,7 +422,7 @@ export const mysqlStore = {
        WHERE user_id = :userId
          AND schedule_date = :scheduleDate
          AND (:excludeScheduleId IS NULL OR schedule_id <> :excludeScheduleId)
-         AND status IN ('active', 'rescheduled')`,
+         AND status <> 'replaced'`,
       { userId, scheduleDate, excludeScheduleId }
     );
   },

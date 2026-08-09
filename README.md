@@ -989,6 +989,14 @@ http://127.0.0.1:3000
 
 ## Development Change Log
 
+### 2026-08-05
+- Fixed duplicate active schedules by selecting the newest generated/rescheduled schedule for each date, automatically marking older full schedules as `replaced`, and retaining only newer manual task overlays.
+- Full schedule regeneration now replaces every older non-replaced schedule for that day, including stale manual schedules.
+- Preserved completed-task history from replaced schedules while preventing an old completed task from reappearing as waiting in a newer schedule.
+- Collapsed multiple schedule blocks for one task into one Waiting, In Progress, or Completed card while keeping every block visible in the Daily Timeline.
+- Updated daily advice and evaluation calculations to count unique tasks instead of counting split schedule blocks as separate tasks.
+- Added regression tests for canonical schedule selection, completed-history reconciliation, and task-card grouping.
+
 ### 2026-05-29
 - Improved the Daily Details schedule-generation behavior without changing the UI design.
 - Updated the rule-based scheduler so it does not add an unnecessary break at the beginning of a good-energy day.

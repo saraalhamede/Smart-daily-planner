@@ -14,7 +14,8 @@
     "build:client": "vite build client --outDir dist",
     "db:migrate": "node server/src/scripts/runSqlFile.js database/schema.sql",
     "db:seed": "node server/src/scripts/runSqlFile.js database/seed.sql",
-    "check": "node --check server/src/index.js && node --check server/src/app.js"
+    "test": "node server/src/logic/scheduleDedup.test.js",
+    "check": "node --check server/src/index.js && node --check server/src/app.js && node --check server/src/logic/scheduleDedup.js"
   },
   "dependencies": {
     "@vitejs/plugin-react": "^5.0.4",
