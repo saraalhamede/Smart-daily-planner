@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import {
   ArrowLeft,
   CalendarClock,
@@ -36,6 +36,7 @@ import { Layout } from './components/Layout.jsx';
 import { ScheduleView } from './components/ScheduleView.jsx';
 import { TaskForm } from './components/TaskForm.jsx';
 import { TaskList } from './components/TaskList.jsx';
+import { VoiceInputControl } from './components/VoiceInputControl.jsx';
 
 const demoUserId = 'user_demo';
 const registrationKey = 'smartPlannerRegisteredUser';
@@ -3516,6 +3517,9 @@ function UnfinishedTasksPicker({ tasks = [], onAdd }) {
 }
 
 function TaskFeedbackModal({ item, draft, onChange, onClose, onSubmit }) {
+  const commentId = useId();
+  const commentRef = useRef(null);
+
   return (
     <div className="feedback-modal-backdrop" role="presentation" onClick={onClose}>
       <section
@@ -3586,14 +3590,23 @@ function TaskFeedbackModal({ item, draft, onChange, onClose, onSubmit }) {
             </label>
           </div>
 
-          <label>
-            Optional comment
+          <div className="voice-enabled-field">
+            <label htmlFor={commentId}>Optional comment</label>
             <textarea
+              id={commentId}
+              ref={commentRef}
+              dir="auto"
               placeholder="Write a short note about how the task went..."
               value={draft.comment}
               onChange={(event) => onChange({ comment: event.target.value })}
             />
-          </label>
+            <VoiceInputControl
+              textareaRef={commentRef}
+              value={draft.comment}
+              onChange={(comment) => onChange({ comment })}
+              fieldLabel="task feedback comment"
+            />
+          </div>
 
           <div className="feedback-modal-actions">
             <button className="secondary-action" type="button" onClick={onClose}>

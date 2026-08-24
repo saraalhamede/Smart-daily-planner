@@ -791,6 +791,131 @@ label {
   gap: 16px;
 }
 
+.voice-enabled-field,
+.voice-input-control {
+  display: grid;
+  gap: 8px;
+}
+
+.voice-input-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 8px;
+}
+
+.voice-language-field {
+  flex: 1 1 180px;
+  max-width: 230px;
+  gap: 4px;
+}
+
+.voice-language-field span {
+  font-size: 0.76rem;
+}
+
+.voice-language-field select {
+  min-height: 42px;
+  border-radius: 8px;
+  padding: 8px 34px 8px 10px;
+}
+
+.voice-input-buttons {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 6px;
+}
+
+.voice-icon-button {
+  display: inline-grid;
+  width: 42px;
+  height: 42px;
+  place-items: center;
+  border: 1px solid #bfd0ef;
+  border-radius: 8px;
+  padding: 0;
+  color: var(--brand-dark);
+  background: #edf3ff;
+}
+
+.voice-icon-button:hover:not(:disabled) {
+  border-color: var(--teal);
+  color: #087c7a;
+  background: #e7fbf8;
+}
+
+.voice-icon-button.recording {
+  border-color: #f1a0b2;
+  color: #a52f49;
+  background: #fff0f4;
+  box-shadow: 0 0 0 4px rgba(217, 85, 114, 0.12);
+}
+
+.voice-icon-button.cancel {
+  color: var(--danger);
+  background: #fff7f9;
+}
+
+.voice-icon-button:disabled {
+  opacity: 0.52;
+  cursor: not-allowed;
+}
+
+.voice-status {
+  display: grid;
+  min-height: 20px;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 800;
+}
+
+.voice-status[data-phase="recording"] {
+  color: #a52f49;
+}
+
+.voice-status[data-phase="success"] {
+  color: #1f7a50;
+}
+
+.voice-status[data-phase="error"] {
+  color: #9f2f46;
+}
+
+.voice-interim {
+  overflow-wrap: anywhere;
+  color: var(--ink);
+  font-style: italic;
+  font-weight: 700;
+}
+
+.voice-privacy-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.voice-privacy-notice svg {
+  flex: 0 0 auto;
+  margin-top: 1px;
+  color: var(--teal);
+}
+
+.voice-spinner {
+  animation: voiceSpinner 900ms linear infinite;
+}
+
+@keyframes voiceSpinner {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .field-grid,
 .metric-grid,
 .feedback-grid {
@@ -4686,6 +4811,14 @@ input:disabled {
   .completed-details-grid,
   .completed-feedback-grid {
     grid-template-columns: 1fr;
+  }
+
+  .voice-input-toolbar {
+    align-items: end;
+  }
+
+  .voice-language-field {
+    max-width: none;
   }
 
   .daily-evaluation-body {

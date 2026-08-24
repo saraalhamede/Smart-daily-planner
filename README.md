@@ -989,6 +989,14 @@ http://127.0.0.1:3000
 
 ## Development Change Log
 
+### 2026-08-24
+- Added optional multilingual voice-to-text with explicit English, Arabic, and Hebrew language selection for task descriptions, Daily Check-In mood notes, and the active task-feedback comment.
+- Kept English as the default and preserved the recognized language and script without translation.
+- Used the browser Web Speech API with visible listening, transcription, cancellation, timeout, unsupported-browser, permission, microphone, and no-speech states.
+- Added a global recording lock and cleanup on cancellation, navigation, and component unmount.
+- Voice recognition may be processed by the browser provider. Smart Day Planner does not create, store, log, upload, or persist audio; only the editable transcript is saved through existing text fields and APIs.
+- Automatic language detection is not provided. The user selects the speech language before recording.
+
 ### 2026-08-05
 - Fixed duplicate active schedules by selecting the newest generated/rescheduled schedule for each date, automatically marking older full schedules as `replaced`, and retaining only newer manual task overlays.
 - Full schedule regeneration now replaces every older non-replaced schedule for that day, including stale manual schedules.

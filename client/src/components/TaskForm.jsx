@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
+import { VoiceInputControl } from './VoiceInputControl.jsx';
 
 const initialState = {
   title: '',
@@ -28,6 +29,8 @@ export function TaskForm({
   const [form, setForm] = useState(() => buildInitialState(selectedDate));
   const [isSaving, setIsSaving] = useState(false);
   const [validationMessage, setValidationMessage] = useState('');
+  const descriptionId = useId();
+  const descriptionRef = useRef(null);
 
   useEffect(() => {
     const next = {
@@ -86,10 +89,23 @@ export function TaskForm({
           Title
           <input value={form.title} onChange={(event) => updateForm({ title: event.target.value })} required={!requireCompleteTask} />
         </label>
-        <label>
-          Description
-          <textarea value={form.description} onChange={(event) => updateForm({ description: event.target.value })} />
-        </label>
+        <div className="voice-enabled-field">
+          <label htmlFor={descriptionId}>Description</label>
+          <textarea
+            id={descriptionId}
+            ref={descriptionRef}
+            dir="auto"
+            value={form.description}
+            onChange={(event) => updateForm({ description: event.target.value })}
+          />
+          <VoiceInputControl
+            textareaRef={descriptionRef}
+            value={form.description}
+            onChange={(description) => updateForm({ description })}
+            fieldLabel="task description"
+            disabled={isSaving}
+          />
+        </div>
 
         <div className="field-grid two">
           <label>

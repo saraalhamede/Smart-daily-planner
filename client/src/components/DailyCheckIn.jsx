@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
+import { VoiceInputControl } from './VoiceInputControl.jsx';
 
 const initialState = {
   mood_text_original: '',
@@ -14,6 +15,8 @@ const initialState = {
 export function DailyCheckIn({ onSubmit, latestLog, selectedDate, onDraftChange }) {
   const [form, setForm] = useState(initialState);
   const [isSaving, setIsSaving] = useState(false);
+  const moodNoteId = useId();
+  const moodNoteRef = useRef(null);
 
   useEffect(() => {
     const next = latestLog ? dailyLogToForm(latestLog) : initialState;
@@ -50,14 +53,24 @@ export function DailyCheckIn({ onSubmit, latestLog, selectedDate, onDraftChange 
       </div>
 
       <form className="form-stack" onSubmit={handleSubmit}>
-        <label>
-          Mood note
+        <div className="voice-enabled-field">
+          <label htmlFor={moodNoteId}>Mood note</label>
           <textarea
+            id={moodNoteId}
+            ref={moodNoteRef}
+            dir="auto"
             value={form.mood_text_original}
             onChange={(event) => updateForm({ mood_text_original: event.target.value })}
             placeholder="Share your mood, energy level, or any challenges..."
           />
-        </label>
+          <VoiceInputControl
+            textareaRef={moodNoteRef}
+            value={form.mood_text_original}
+            onChange={(mood_text_original) => updateForm({ mood_text_original })}
+            fieldLabel="daily check-in mood note"
+            disabled={isSaving}
+          />
+        </div>
 
         <div className="metric-grid">
           <RangeField label="Mood" value={form.mood_level} onChange={(value) => updateForm({ mood_level: value })} />
