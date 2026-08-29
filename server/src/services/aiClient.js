@@ -1,7 +1,9 @@
 import { analyzeMoodEnergy, categorizeTask } from '../logic/ai.js';
+import { isValidatedOpenAiSubtaskResult } from './subtaskGenerationPolicy.js';
 
 const AI_SERVICE_URL = process.env.AI_SERVICE_URL || 'http://127.0.0.1:8000';
 const AI_TIMEOUT_MS = Number.parseInt(process.env.AI_SERVICE_TIMEOUT_MS || '2500', 10);
+const DEFAULT_GENERATIVE_SERVICE_TIMEOUT_MS = 7500;
 
 export async function getAiServiceHealth() {
   try {
@@ -53,9 +55,18 @@ export async function generateScheduleHintsWithAi(payload) {
 
 export async function generateSubtasksWithAi(payload) {
   try {
-    return await callAiService('/ai/generate-subtasks', payload);
+    const result = await callAiService('/ai/generate-subtasks', payload, 'POST', {
+      timeoutMs: isGenerativeAiEnabled() ? getGenerativeServiceTimeoutMs() : AI_TIMEOUT_MS
+    });
+    if ((result?.source === 'openai_responses_api' ||
+      result?.provenance === 'openai_responses_api' ||
+      result?.generated_by_ai === true) &&
+      !isValidatedOpenAiSubtaskResult(result)) {
+      return fallbackSubtasks(payload, new Error('Invalid OpenAI subtask result.'));
+    }
+    return result;
   } catch (error) {
-    console.warn('[AI] Subtask generation fallback used:', error.message);
+    console.warn('[AI] Subtask generation fallback used.');
     return fallbackSubtasks(payload, error);
   }
 }
@@ -69,13 +80,13 @@ export async function generateAdviceWithAi(payload) {
   }
 }
 
-async function callAiService(path, payload, method = 'POST') {
+async function callAiService(path, payload, method = 'POST', options = {}) {
   if (process.env.AI_SERVICE_ENABLED === 'false') {
     throw new Error('AI service is disabled.');
   }
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), AI_TIMEOUT_MS);
+  const timeout = setTimeout(() => controller.abort(), options.timeoutMs ?? AI_TIMEOUT_MS);
   try {
     const response = await fetch(`${AI_SERVICE_URL}${path}`, {
       method,
@@ -168,13 +179,16 @@ function fallbackSubtasks(payload, error) {
     return {
       module: 'subtask_generation',
       source: 'node_rule_based_fallback',
+      provenance: 'node_rule_based_fallback',
       model: 'local_ai_style_planner',
+      generated_by_ai: false,
+      fallback_used: true,
+      fallback_reason_category: subtaskFallbackReasonCategory(error),
       subtasks: [],
       skipped: true,
       reason: 'simple_task',
       message: 'No breakdown needed for this simple task.',
-      confidence: 0.45,
-      fallback_reason: error.message
+      confidence: 0.45
     };
   }
 
@@ -182,14 +196,32 @@ function fallbackSubtasks(payload, error) {
   return {
     module: 'subtask_generation',
     source: 'node_rule_based_fallback',
+    provenance: 'node_rule_based_fallback',
     model: 'local_ai_style_planner',
+    generated_by_ai: false,
+    fallback_used: true,
+    fallback_reason_category: subtaskFallbackReasonCategory(error),
     subtasks: fallbackPieces.map((title, index) => ({
       title: title.charAt(0).toUpperCase() + title.slice(1),
       order_index: index + 1
     })),
-    confidence: 0.45,
-    fallback_reason: error.message
+    confidence: 0.45
   };
+}
+
+function isGenerativeAiEnabled() {
+  return String(process.env.AI_GENERATIVE_ENABLED || '').trim().toLowerCase() === 'true';
+}
+
+function getGenerativeServiceTimeoutMs() {
+  const configured = Number.parseInt(process.env.AI_GENERATIVE_SERVICE_TIMEOUT_MS || '', 10);
+  return Number.isInteger(configured) && configured >= 3000 && configured <= 10000
+    ? configured
+    : DEFAULT_GENERATIVE_SERVICE_TIMEOUT_MS;
+}
+
+function subtaskFallbackReasonCategory(error) {
+  return error?.name === 'AbortError' ? 'ai_service_timeout' : 'ai_service_unavailable';
 }
 
 function isSimpleBreakdownPayload(payload = {}) {

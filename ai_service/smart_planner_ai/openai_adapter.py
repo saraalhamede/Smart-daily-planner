@@ -37,6 +37,7 @@ INVALID_STRUCTURED_OUTPUT = "invalid_structured_output"
 INPUT_TOO_LARGE = "input_too_large"
 UNKNOWN_SCHEMA = "unknown_schema"
 UNEXPECTED_PROVIDER_FAILURE = "unexpected_provider_failure"
+SDK_UNAVAILABLE = "sdk_unavailable"
 
 _KNOWN_SCHEMAS = frozenset((TASK_BREAKDOWN_SCHEMA_NAME, ADVICE_SCHEMA_NAME))
 
@@ -228,6 +229,8 @@ class OpenAIResponsesAdapter:
     def _classify_exception(error: Exception) -> str:
         error_name = type(error).__name__
         status_code = getattr(error, "status_code", None)
+        if isinstance(error, ModuleNotFoundError) and error.name == "openai":
+            return SDK_UNAVAILABLE
         if error_name in {"APITimeoutError", "TimeoutError"}:
             return TIMEOUT
         if error_name in {"APIConnectionError", "ConnectionError"}:

@@ -14,7 +14,7 @@
     "build:client": "vite build client --outDir dist",
     "db:migrate": "node server/src/scripts/runSqlFile.js database/schema.sql",
     "db:seed": "node server/src/scripts/runSqlFile.js database/seed.sql",
-    "test": "node server/src/logic/scheduleDedup.test.js && node client/src/components/voiceInputCore.test.js",
+    "test": "node server/src/logic/scheduleDedup.test.js && node client/src/components/voiceInputCore.test.js && node --test server/src/services/aiClient.test.js && node --test server/src/services/subtaskGenerationPolicy.test.js",
     "test:voice": "node client/src/components/voiceInputCore.test.js",
     "check": "node --check server/src/index.js && node --check server/src/app.js && node --check server/src/logic/scheduleDedup.js"
   },

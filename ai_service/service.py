@@ -2,6 +2,10 @@ from __future__ import annotations
 
 import os
 
+from smart_planner_ai.environment import load_root_environment
+
+load_root_environment()
+
 from flask import Flask, jsonify, request
 
 from smart_planner_ai.advice import generate_advice

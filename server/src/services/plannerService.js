@@ -17,6 +17,13 @@ import {
   generateSubtasksWithAi,
   getAiServiceHealth
 } from './aiClient.js';
+import {
+  buildSubtaskPredictionInput,
+  buildSubtaskPredictionOutput,
+  isValidatedOpenAiSubtaskResult,
+  normalizeSubtaskProvenance,
+  safeSubtaskPredictionModel
+} from './subtaskGenerationPolicy.js';
 
 const store = await getStore();
 
@@ -529,11 +536,11 @@ export async function generateSubtasksRequest(input) {
       user_id: input.user_id,
       related_task_id: input.task_id || null,
       module_name: 'subtask_generation',
-      model_name: result.model || null,
-      source: result.source || 'python_ai_service',
+      model_name: safeSubtaskPredictionModel(result),
+      source: normalizeSubtaskProvenance(result),
       confidence: result.confidence ?? null,
-      input_json: input,
-      output_json: result,
+      input_json: buildSubtaskPredictionInput(input, result),
+      output_json: buildSubtaskPredictionOutput(result),
       created_at: new Date().toISOString()
     });
   }
@@ -1705,13 +1712,13 @@ async function ensureAiSubtasksForItem(userId, item) {
     estimated_duration_minutes: task?.estimated_duration_minutes || getDurationMinutes(item.start_time, item.end_time)
   };
 
+  if (existingSubtasks.length > 0) {
+    return existingSubtasks;
+  }
+
   if (isSimpleBreakdownInput(input)) {
     await store.replaceSubtasksForScheduleItem(item.schedule_item_id, []);
     return [];
-  }
-
-  if (existingSubtasks.some((subtask) => Boolean(subtask.generated_by_ai))) {
-    return existingSubtasks;
   }
 
   const generated = await generateSubtasksWithAi(input);
@@ -1723,16 +1730,17 @@ async function ensureAiSubtasksForItem(userId, item) {
       related_task_id: item.task_id,
       related_schedule_id: item.schedule_id,
       module_name: 'subtask_generation',
-      model_name: generated.model || null,
-      source: generated.source || 'python_ai_service',
+      model_name: safeSubtaskPredictionModel(generated),
+      source: normalizeSubtaskProvenance(generated),
       confidence: generated.confidence ?? null,
-      input_json: input,
-      output_json: generated,
+      input_json: buildSubtaskPredictionInput(input, generated),
+      output_json: buildSubtaskPredictionOutput(generated),
       created_at: new Date().toISOString()
     });
     return [];
   }
 
+  const generatedByOpenAi = isValidatedOpenAiSubtaskResult(generated);
   const subtasks = normalizeGeneratedSubtasks(generated.subtasks).map((subtask, index) => ({
     subtask_id: createId('subtask'),
     user_id: userId,
@@ -1742,7 +1750,7 @@ async function ensureAiSubtasksForItem(userId, item) {
     is_completed: false,
     order_index: subtask.order_index || index + 1,
     sort_order: subtask.order_index || index + 1,
-    generated_by_ai: true,
+    generated_by_ai: generatedByOpenAi,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString()
   }));
@@ -1755,11 +1763,11 @@ async function ensureAiSubtasksForItem(userId, item) {
     related_task_id: item.task_id,
     related_schedule_id: item.schedule_id,
     module_name: 'subtask_generation',
-    model_name: generated.model || null,
-    source: generated.source || 'python_ai_service',
+    model_name: safeSubtaskPredictionModel(generated),
+    source: normalizeSubtaskProvenance(generated),
     confidence: generated.confidence ?? null,
-    input_json: input,
-    output_json: generated,
+    input_json: buildSubtaskPredictionInput(input, generated),
+    output_json: buildSubtaskPredictionOutput(generated),
     created_at: new Date().toISOString()
   });
   return savedSubtasks;

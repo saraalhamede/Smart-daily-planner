@@ -1,6 +1,6 @@
 import dotenv from 'dotenv';
 
-dotenv.config({ override: true });
+dotenv.config({ override: false });
 
 const { createApp } = await import('./app.js');
 const port = process.env.PORT || 3000;

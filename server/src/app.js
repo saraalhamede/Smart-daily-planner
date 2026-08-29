@@ -4,7 +4,7 @@ import express from 'express';
 import { apiRouter } from './routes/api.js';
 import { getHealth } from './services/plannerService.js';
 
-dotenv.config({ override: true });
+dotenv.config({ override: false });
 
 export function createApp() {
   const app = express();
