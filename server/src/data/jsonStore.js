@@ -38,7 +38,10 @@ const defaultData = {
   tasks: [],
   schedules: [],
   schedule_items: [],
-  feedback: []
+  feedback: [],
+  ai_notes: [],
+  ai_predictions: [],
+  daily_evaluations: []
 };
 
 async function readData() {
@@ -57,9 +60,22 @@ async function writeData(data) {
 
 async function insert(collection, record) {
   const data = await readData();
-  data[collection].push(record);
+  collectionRows(data, collection).push(record);
   await writeData(data);
   return record;
+}
+
+function collectionRows(data, collection) {
+  if (!Array.isArray(data[collection])) data[collection] = [];
+  return data[collection];
+}
+
+export function selectAiPredictionRows(data, userId, moduleName) {
+  if (!userId || !moduleName || !Array.isArray(data?.ai_predictions)) return [];
+  return data.ai_predictions
+    .filter((item) => item.user_id === userId && item.module_name === moduleName)
+    .slice()
+    .sort((left, right) => String(right.created_at || '').localeCompare(String(left.created_at || '')));
 }
 
 export const jsonStore = {
@@ -164,5 +180,43 @@ export const jsonStore = {
 
   async insertFeedback(record) {
     return insert('feedback', record);
+  },
+
+  async listAiNotes(userId) {
+    const data = await readData();
+    return collectionRows(data, 'ai_notes')
+      .filter((item) => item.user_id === userId)
+      .sort((left, right) => String(right.note_date || right.created_at || '').localeCompare(String(left.note_date || left.created_at || '')));
+  },
+
+  async insertAiNote(record) {
+    return insert('ai_notes', record);
+  },
+
+  async listAiPredictions(userId, moduleName = null) {
+    const data = await readData();
+    if (moduleName) return selectAiPredictionRows(data, userId, moduleName);
+    return collectionRows(data, 'ai_predictions')
+      .filter((item) => item.user_id === userId)
+      .sort((left, right) => String(right.created_at || '').localeCompare(String(left.created_at || '')));
+  },
+
+  async insertAiPrediction(record) {
+    return insert('ai_predictions', record);
+  },
+
+  async insertAiAdviceResult(notes, prediction) {
+    const data = await readData();
+    collectionRows(data, 'ai_notes').push(...notes);
+    if (prediction) collectionRows(data, 'ai_predictions').push(prediction);
+    await writeData(data);
+    return notes;
+  },
+
+  async listDailyEvaluations(userId) {
+    const data = await readData();
+    return collectionRows(data, 'daily_evaluations')
+      .filter((item) => item.user_id === userId)
+      .sort((left, right) => String(left.evaluation_date || '').localeCompare(String(right.evaluation_date || '')));
   }
 };

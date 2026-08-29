@@ -11,6 +11,16 @@ async function many(sql, params = {}) {
   return rows;
 }
 
+export function buildAiPredictionLookupQuery(userId, moduleName) {
+  if (!userId || !moduleName) return null;
+  return {
+    sql: `SELECT * FROM ai_predictions
+         WHERE user_id = :userId AND module_name = :moduleName
+         ORDER BY created_at DESC`,
+    params: { userId, moduleName }
+  };
+}
+
 function cleanRecord(record) {
   return Object.fromEntries(
     Object.entries(record)
@@ -482,6 +492,32 @@ export const mysqlStore = {
 
   insertAiPrediction(record) {
     return insert('ai_predictions', record);
+  },
+
+  listAiPredictions(userId, moduleName = null) {
+    if (moduleName) {
+      const query = buildAiPredictionLookupQuery(userId, moduleName);
+      return query ? many(query.sql, query.params) : Promise.resolve([]);
+    }
+    return many('SELECT * FROM ai_predictions WHERE user_id = :userId ORDER BY created_at DESC', { userId });
+  },
+
+  async insertAiAdviceResult(notes, prediction) {
+    const connection = await pool.getConnection();
+    try {
+      await connection.beginTransaction();
+      for (const note of notes) {
+        await insert('ai_notes', note, connection);
+      }
+      if (prediction) await insert('ai_predictions', prediction, connection);
+      await connection.commit();
+      return notes;
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
   },
 
   insertEmotionLog(record) {

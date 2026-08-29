@@ -24,8 +24,22 @@ import {
   normalizeSubtaskProvenance,
   safeSubtaskPredictionModel
 } from './subtaskGenerationPolicy.js';
+import {
+  buildAdviceGenerationRequest,
+  buildAdviceCacheIdentity,
+  buildAdvicePredictionInput,
+  buildAdvicePredictionOutput,
+  buildAdviceSingleFlightKey,
+  createAdviceSingleFlight,
+  getCachedAdviceResult,
+  isGenerativeAdviceEnabled,
+  isValidatedOpenAiAdviceResult,
+  LEGACY_AI_NOTE_SOURCE,
+  normalizeAdviceProvenance
+} from './adviceGenerationPolicy.js';
 
 const store = await getStore();
+const runAdviceSingleFlight = createAdviceSingleFlight();
 
 export async function getHealth() {
   const database = await store.healthCheck();
@@ -548,22 +562,11 @@ export async function generateSubtasksRequest(input) {
 }
 
 export async function generateAdviceRequest(input) {
-  const result = await generateAdviceWithAi(input);
-  if (input.user_id) {
-    await insertIfSupported('insertAiPrediction', {
-      prediction_id: createId('pred'),
-      user_id: input.user_id,
-      related_task_id: input.related_task_id || null,
-      module_name: 'advice_generation',
-      model_name: result.model || null,
-      source: result.source || 'python_ai_service',
-      confidence: result.confidence ?? null,
-      input_json: input,
-      output_json: result,
-      created_at: new Date().toISOString()
-    });
+  const execution = await generateAdviceForContext(input);
+  if (!execution.cached && input.user_id) {
+    await persistAdviceRecordsSafely(input, execution.request, execution.result, []);
   }
-  return result;
+  return execution.result;
 }
 
 export async function createDailyLog(input) {
@@ -1208,29 +1211,112 @@ async function ensureAdviceNotes(context) {
     return [];
   }
 
-  const result = await generateAdviceWithAi(context);
-  const generatedNotes = normalizeGeneratedAdvice(result.advice, context);
-  if (generatedNotes.length === 0) return [];
+  const execution = await generateAdviceForContext(context);
+  const generatedNotes = normalizeGeneratedAdvice(execution.result.advice, context, {
+    taskReferences: execution.request?.taskReferences,
+    provenance: normalizeAdviceProvenance(execution.result)
+  });
+  if (generatedNotes.length === 0) {
+    if (!execution.cached && isValidatedOpenAiAdviceResult(execution.result, execution.request)) {
+      await persistAdviceRecordsSafely(context, execution.request, execution.result, []);
+    }
+    return [];
+  }
 
   const existingNotes = await store.listAiNotes(context.user_id);
   const existingKeys = new Set(existingNotes.map(getAdviceDedupKey));
   const notesToSave = generatedNotes.filter((note) => !existingKeys.has(getAdviceDedupKey(note)));
+  if (!execution.cached && (notesToSave.length > 0 || isValidatedOpenAiAdviceResult(execution.result, execution.request))) {
+    await persistAdviceRecordsSafely(context, execution.request, execution.result, notesToSave);
+  }
   if (notesToSave.length === 0) return [];
 
-  const saved = await Promise.all(notesToSave.map((note) => store.insertAiNote(note)));
-  await insertIfSupported('insertAiPrediction', {
+  return notesToSave;
+}
+
+async function generateAdviceForContext(context) {
+  const request = isGenerativeAdviceEnabled()
+    ? buildAdviceGenerationRequest(context, { maxInputChars: getGenerativeInputLimit() })
+    : null;
+  const cacheIdentity = buildAdviceCacheIdentity(context, request);
+  if (!request || !cacheIdentity) {
+    return {
+      request,
+      cached: false,
+      result: await generateAdviceWithAi(buildAdviceEnvelope(context, request), { request })
+    };
+  }
+
+  const key = buildAdviceSingleFlightKey(cacheIdentity);
+  return runAdviceSingleFlight(key, async () => {
+    const cached = await findCachedAdviceResult(cacheIdentity.userId, request, cacheIdentity);
+    if (cached) return { request, cached: true, result: cached };
+    return {
+      request,
+      cached: false,
+      result: await generateAdviceWithAi(buildAdviceEnvelope(context, request), { request })
+    };
+  });
+}
+
+function buildAdviceEnvelope(context, request) {
+  if (!request) return context;
+  return {
+    legacy_context: context,
+    generative_context: request.providerContext
+  };
+}
+
+async function findCachedAdviceResult(userId, request, cacheIdentity) {
+  if (typeof store.listAiPredictions !== 'function') return null;
+  try {
+    const predictions = await store.listAiPredictions(userId, 'advice_generation');
+    for (const prediction of predictions) {
+      const cached = getCachedAdviceResult(prediction, request, cacheIdentity);
+      if (cached) return cached;
+    }
+  } catch {
+    console.warn('[AI] Advice cache lookup skipped.');
+  }
+  return null;
+}
+
+async function persistAdviceRecords(context, request, result, notes) {
+  if (!context?.user_id) return;
+  const accepted = isValidatedOpenAiAdviceResult(result, request);
+  const prediction = {
     prediction_id: createId('pred'),
     user_id: context.user_id,
+    related_task_id: context.related_task_id || null,
     related_schedule_id: context.schedule_id || null,
     module_name: 'advice_generation',
-    model_name: result.model || null,
-    source: result.source || 'python_ai_service',
+    model_name: accepted ? result.model : null,
+    source: normalizeAdviceProvenance(result),
     confidence: result.confidence ?? null,
-    input_json: context,
-    output_json: result,
+    input_json: buildAdvicePredictionInput(context, request, result),
+    output_json: buildAdvicePredictionOutput(result, request),
     created_at: new Date().toISOString()
-  });
-  return saved;
+  };
+
+  if (typeof store.insertAiAdviceResult === 'function') {
+    await store.insertAiAdviceResult(notes, prediction);
+    return;
+  }
+  await Promise.all(notes.map((note) => store.insertAiNote(note)));
+  await insertIfSupported('insertAiPrediction', prediction);
+}
+
+async function persistAdviceRecordsSafely(context, request, result, notes) {
+  try {
+    await persistAdviceRecords(context, request, result, notes);
+  } catch {
+    console.warn('[AI] Advice persistence skipped.');
+  }
+}
+
+function getGenerativeInputLimit() {
+  const configured = Number.parseInt(process.env.AI_GENERATIVE_MAX_INPUT_CHARS || '', 10);
+  return Number.isInteger(configured) && configured >= 2000 && configured <= 8000 ? configured : 8000;
 }
 
 function buildDailyAdviceContext({ userId, date, schedule, items = [], tasks = [], dailyCheckin, feedback = [], dailyEvaluation }) {
@@ -1373,7 +1459,7 @@ function getCompletionDateForItem(item, task = null) {
   );
 }
 
-function normalizeGeneratedAdvice(advice, context) {
+function normalizeGeneratedAdvice(advice, context, options = {}) {
   if (!Array.isArray(advice)) return [];
   return advice
     .map((note) => {
@@ -1385,13 +1471,15 @@ function normalizeGeneratedAdvice(advice, context) {
         user_id: context.user_id,
         note_date: dateOnly(note.related_date || context.related_date || context.date) || todayKey(),
         schedule_id: context.schedule_id || null,
-        related_task_id: note.related_task_id || null,
+        related_task_id: note.task_ref
+          ? options.taskReferences?.[note.task_ref] || null
+          : note.related_task_id || null,
         note_type: String(note.advice_type || note.note_type || 'recommendation').slice(0, 40),
         title: title.slice(0, 160),
         message,
         scope: normalizeAdviceScope(note.scope || context.scope),
         priority: clampNumber(parseInteger(note.priority, 3), 1, 5),
-        source: 'ai_model',
+        source: LEGACY_AI_NOTE_SOURCE,
         created_at: new Date().toISOString()
       };
     })
@@ -1439,10 +1527,13 @@ function enrichFeedbackForAdvice(feedback = [], tasks = [], scheduleItems = []) 
 }
 
 function mapScheduleItemForAdvice(item) {
+  const subtasks = Array.isArray(item.subtasks) ? item.subtasks : [];
+  const completedSubtasks = subtasks.filter((subtask) => Boolean(subtask.is_completed)).length;
   return {
     task_id: item.task_id || null,
     schedule_item_id: item.schedule_item_id || null,
     title: item.title,
+    description: item.description || item.task?.description || null,
     category: item.category || item.task?.category || null,
     status: item.status,
     priority_level: item.priority_level || item.task?.priority_level || null,
@@ -1452,7 +1543,9 @@ function mapScheduleItemForAdvice(item) {
     end_time: item.end_time,
     planned_duration_minutes: getDurationMinutes(item.start_time, item.end_time),
     actual_duration_minutes: parseOptionalInteger(item.actual_duration_minutes),
-    progress_percentage: getSubtaskProgress(item)
+    progress_percentage: getSubtaskProgress(item),
+    subtask_completed_count: completedSubtasks,
+    subtask_total_count: subtasks.length
   };
 }
 
@@ -1460,6 +1553,7 @@ function mapTaskForAdvice(task, date) {
   return {
     task_id: task.task_id,
     title: task.title,
+    description: task.description || null,
     category: task.category || null,
     status: task.status,
     priority_level: task.priority_level || null,

@@ -1,4 +1,5 @@
 import { analyzeMoodEnergy, categorizeTask } from '../logic/ai.js';
+import { isValidatedOpenAiAdviceResult } from './adviceGenerationPolicy.js';
 import { isValidatedOpenAiSubtaskResult } from './subtaskGenerationPolicy.js';
 
 const AI_SERVICE_URL = process.env.AI_SERVICE_URL || 'http://127.0.0.1:8000';
@@ -71,12 +72,22 @@ export async function generateSubtasksWithAi(payload) {
   }
 }
 
-export async function generateAdviceWithAi(payload) {
+export async function generateAdviceWithAi(payload, options = {}) {
+  const legacyPayload = payload?.legacy_context || payload;
   try {
-    return await callAiService('/ai/generate-advice', payload);
+    const result = await callAiService('/ai/generate-advice', payload, 'POST', {
+      timeoutMs: isGenerativeAiEnabled() ? getGenerativeServiceTimeoutMs() : AI_TIMEOUT_MS
+    });
+    if ((result?.source === 'openai_responses_api' ||
+      result?.provenance === 'openai_responses_api' ||
+      result?.generated_by_ai === true) &&
+      !isValidatedOpenAiAdviceResult(result, options.request)) {
+      return fallbackAdvice(legacyPayload, new Error('Invalid OpenAI advice result.'));
+    }
+    return result;
   } catch (error) {
-    console.warn('[AI] Advice generation fallback used:', error.message);
-    return fallbackAdvice(payload, error);
+    console.warn('[AI] Advice generation fallback used.');
+    return fallbackAdvice(legacyPayload, error);
   }
 }
 
@@ -358,10 +369,13 @@ function fallbackAdvice(payload, error) {
     return {
       module: 'advice_generation',
       source: 'node_rule_based_fallback',
+      provenance: 'node_rule_based_fallback',
       model: 'local_advice_rules',
+      generated_by_ai: false,
+      fallback_used: true,
+      fallback_reason_category: adviceFallbackReasonCategory(error),
       advice,
-      confidence: 0.45,
-      fallback_reason: error.message
+      confidence: 0.45
     };
   }
 
@@ -441,11 +455,19 @@ function fallbackAdvice(payload, error) {
   return {
     module: 'advice_generation',
     source: 'node_rule_based_fallback',
+    provenance: 'node_rule_based_fallback',
     model: 'local_advice_rules',
+    generated_by_ai: false,
+    fallback_used: true,
+    fallback_reason_category: adviceFallbackReasonCategory(error),
     advice: advice.slice(0, complexDay ? 12 : 6),
-    confidence: 0.45,
-    fallback_reason: error.message
+    confidence: 0.45
   };
+}
+
+function adviceFallbackReasonCategory(error) {
+  if (error?.name === 'AbortError') return 'ai_service_timeout';
+  return 'ai_service_unavailable';
 }
 
 function buildAdviceNote(adviceType, title, message, priority, scope, payload, relatedTaskId = null) {
