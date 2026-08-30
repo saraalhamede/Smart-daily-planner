@@ -3,3 +3,9 @@ server/data/app-data.json
 .env
 dist/
 *-dev.*.log
+
+# Python local environment and bytecode
+.venv/
+venv/
+__pycache__/
+*.py[cod]
